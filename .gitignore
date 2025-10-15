@@ -1,0 +1,15 @@
+.idea
+*.pyc
+*.pyo
+.ipynb_checkpoints
+.ipynb_checkpoints/
+**/__pycache__
+*.egg-info
+._.DS_Store
+*._*
+*.DS_Store
+
+.venv*
+venv
+build
+
