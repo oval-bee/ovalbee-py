@@ -1,0 +1,3 @@
+"""
+Video-specific extra hooks.
+"""
