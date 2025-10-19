@@ -1,0 +1,28 @@
+"""
+Helpers for loading and persisting Ovalbee environment configuration.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from ovalbee.io.credentials import CredentialSettings
+
+OVALBEE_ENV_FILENAME = "ovalbee.env"
+
+
+def default_env_path() -> Path:
+    """
+    Placeholder helper for discovering environment files.
+    """
+
+    return Path.home() / OVALBEE_ENV_FILENAME
+
+
+def load_env(path: Optional[Path] = None) -> None:
+    """
+    Stubbed environment loader; concrete implementation will be added later.
+    """
+
+    _ = path or default_env_path()

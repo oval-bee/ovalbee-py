@@ -1,8 +1,29 @@
-from ovalbee.api import api
+"""
+Public package interface for the Ovalbee SDK.
+
+The module exposes a light facade (`Ovalbee`, `login`, `space`, `collection`)
+that will be expanded as the architectural skeleton gains concrete behavior.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+# from ovalbee.api import api  # Existing stub preserved for backwards compatibility.
 from ovalbee.api.api import Api
-from ovalbee.core.annotation import Annotation
-from ovalbee.core.asset import Asset
-from ovalbee.core.collection import Collection
-from ovalbee.core.collection import get_collection as collection
-from ovalbee.core.space import Space
-from ovalbee.core.space import get_space as space
+from ovalbee.domain.types.asset import AssetInfo
+from ovalbee.domain.types.collection import CollectionInfo
+from ovalbee.domain.types.file import FileInfo
+from ovalbee.domain.types.space import SpaceInfo
+
+# from ovalbee.client import ClientConfig, Ovalbee, login
+
+
+__all__ = [
+    "Api",
+    "Annotation",
+    "AssetInfo",
+    "CollectionInfo",
+    "FileInfo",
+    "SpaceInfo",
+]
