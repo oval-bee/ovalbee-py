@@ -19,23 +19,18 @@ class ModuleApiTemplate(ABC):
     def __init__(self, api_client):
         self.api_client = api_client
 
-    @staticmethod
-    @abstractmethod
-    def _endpoint_prefix() -> str:
+    def _endpoint_prefix(self) -> str:
         pass
 
-    @staticmethod
     @abstractmethod
-    def _info_class():
+    def _info_class(self):
         pass
 
-    @staticmethod
     @abstractmethod
-    def _endpoint_name_create() -> str:
+    def _creation_endpoint_name(self) -> str:
         pass
 
-    @staticmethod
-    def _create_field_name() -> str:
+    def _create_field_name(self) -> str:
         pass
 
     @abstractmethod
@@ -83,7 +78,7 @@ class ModuleApi(ModuleApiTemplate):
         # for now, we assume that all items fit in a single page
         return list(self._get_list_all_pages_generator(space_id))
 
-    def _get_list_all_pages_generator(self, space_id: int) -> Generator[Any, None]:
+    def _get_list_all_pages_generator(self, space_id: int) -> Generator[Any, None, None]:
         """_get_list_all_pages_generator"""
         # TODO: implement pagination
         # for now, we assume that all items fit in a single page
@@ -102,7 +97,7 @@ class ModuleApi(ModuleApiTemplate):
         else:
             data = items
 
-        method = f"{self._endpoint_prefix()}/{self._endpoint_name_create()}"
+        method = f"{self._endpoint_prefix()}/{self._creation_endpoint_name()}"
         resp = self._api.post(method, data=data)
         resp_json = resp.json()
         return [self._info_class()(**item) for item in resp_json]
@@ -111,11 +106,9 @@ class ModuleApi(ModuleApiTemplate):
 class UpdatableModuleApi(ModuleApi):
 
     @staticmethod
-    @abstractmethod
     def _endpoint_name_update() -> str:
         pass
 
-    @abstractmethod
     def update(self, item: Any) -> Any:
         pass
 
@@ -133,11 +126,9 @@ class UpdatableModuleApi(ModuleApi):
 class DeletableModuleApi(ModuleApi):
 
     @staticmethod
-    @abstractmethod
     def _endpoint_name_delete() -> str:
         pass
 
-    @abstractmethod
     def delete(self, id: int) -> None:
         pass
 
