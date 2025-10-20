@@ -10,13 +10,13 @@ class AssetApi(CRUDModuleApi):
     @staticmethod
     def _info_class() -> BaseInfo:
         return AssetInfo
-    
+
     def _endpoint_prefix(self) -> str:
         return "assets"
 
     # --- Creation -------------------------------------------------
     def _creation_endpoint_name(self) -> str:
-        return "bulkCreate"
+        return "bulk"
 
     def _create_field_name(self) -> str:
         return "assets"

@@ -2,6 +2,7 @@ from typing import Optional
 
 from ovalbee.api._api import _Api
 from ovalbee.api.asset_api import AssetApi
+from ovalbee.api.collection_api import CollectionApi
 
 # from ovalbee.api.annotation_api import AnnotationApi
 # from ovalbee.api.storage_api import StorageApi
@@ -26,3 +27,4 @@ class Api(_Api):
         # self.storage = StorageApi(self)
         # self.annotation = AnnotationApi(self)
         self.asset = AssetApi(self)
+        self.collection = CollectionApi(self)

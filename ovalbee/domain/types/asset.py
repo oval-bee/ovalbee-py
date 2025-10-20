@@ -16,7 +16,7 @@ class AssetType(str, enum.Enum):
 
 class AssetInfo(BaseInfo):
     name: Optional[str] = None
-    workspace_id: int = Field(alias="workspaceId")
+    workspace_id: Optional[int] = Field(alias="workspaceId")
     type: AssetType = AssetType.IMAGES
     resources: List[FileInfo] = Field(default_factory=list)
     source_id: Optional[int] = Field(default=None, alias="sourceId")

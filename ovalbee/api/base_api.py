@@ -26,7 +26,6 @@ class ModuleApiTemplate(ABC):
     def _info_class(self):
         pass
 
-    @abstractmethod
     def _creation_endpoint_name(self) -> str:
         pass
 
@@ -88,7 +87,7 @@ class ModuleApi(ModuleApiTemplate):
         for item in resp_json:
             yield self._info_class()(**item)
 
-    def _create_bulk(self, items: List[Any]) -> List[Any]:
+    def _create_bulk(self, items: List[BaseModel]) -> List[Any]:
         """_create_bulk"""
         data = {}
         items = [item.model_dump() for item in items]
@@ -97,7 +96,9 @@ class ModuleApi(ModuleApiTemplate):
         else:
             data = items
 
-        method = f"{self._endpoint_prefix()}/{self._creation_endpoint_name()}"
+        method = self._endpoint_prefix().rstrip("/")
+        if self._creation_endpoint_name():
+            method += f"/{self._creation_endpoint_name()}"
         resp = self._api.post(method, data=data)
         resp_json = resp.json()
         return [self._info_class()(**item) for item in resp_json]
