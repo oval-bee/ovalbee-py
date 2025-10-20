@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -15,114 +16,254 @@ try:
 except ImportError:
     aiofiles = None
 
+from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
+from ovalbee.io.decorators import sync_compatible
 
-def sync_compatible(async_fn):
-    @functools.wraps(async_fn)
-    def wrapper(self, *args, **kwargs):
-        coro = async_fn(self, *args, **kwargs)
+
+# --------------- Config dataclasses -------------------------------------------
+@dataclass
+class StorageConfig:
+    """Configuration for StorageApi client."""
+    service_name: str = "s3"
+    default_region: str = "us-east-1"
+    addressing_style: str = "path"
+    max_pool_connections: int = 10
+    read_timeout: int = 60
+    connect_timeout: int = 10
+    max_retries: int = 5
+    multipart_threshold: int = 64 * 1024 * 1024  # 64 MiB
+    part_size: int = 8 * 1024 * 1024  # 8 MiB
+    default_chunk_size: int = 1024 * 1024  # 1 MiB
+    default_concurrency: int = 8
+
+    def to_boto3_config(self, extra: Optional[Dict[str, Any]] = None) -> Config:
+        """Convert to boto3 Config object."""
+        s3_cfg = {"addressing_style": self.addressing_style}
+        if extra and isinstance(extra.get(self.service_name), dict):
+            s3_cfg.update(extra[self.service_name])
+        return Config(
+            signature_version="s3v4",
+            s3=s3_cfg,
+            retries={"max_attempts": self.max_retries, "mode": "standard"},
+            connect_timeout=self.connect_timeout,
+            read_timeout=self.read_timeout,
+            max_pool_connections=self.max_pool_connections,
+        )
+
+
+# --------------- Bucket Operations ---------------------------------------------
+class BucketOperations:
+    """Bucket-related operations."""
+    
+    def __init__(self, api: _StorageApi):
+        self._api = api
+    
+    @sync_compatible
+    async def list(self) -> List[str]:
+        """List all bucket names."""
+        self._api._ensure_connected()
+        resp = await self._api._client.list_buckets()
+        return [b["Name"] for b in resp.get("Buckets", [])]
+    
+    @sync_compatible
+    async def exists(self, name: str) -> bool:
+        """Check if bucket exists."""
+        self._api._ensure_connected()
         try:
-            asyncio.get_running_loop()
-            # We're in an async context, return the coroutine
-            return coro
-        except RuntimeError:
-            return asyncio.run(coro)
+            await self._api._client.head_bucket(Bucket=name)
+            return True
+        except ClientError as e:
+            if self._is_not_found_error(e):
+                return False
+            raise
+    
+    @sync_compatible
+    async def create(self, name: str) -> None:
+        """Create a new bucket."""
+        self._api._ensure_connected()
+        params = {"Bucket": name}
+        
+        region = self._api._creds.get_region()
+        if region and region != self._api._config.default_region:
+            params["CreateBucketConfiguration"] = {"LocationConstraint": region}
+        
+        try:
+            await self._api._client.create_bucket(**params)
+        except Exception as e:
+            if "BucketAlreadyOwnedByYou" not in str(e):
+                raise
+    
+    @sync_compatible
+    async def ensure(self, name: str) -> None:
+        """Create bucket if it doesn't exist."""
+        if not await self.exists(name):
+            await self.create(name)
+    
+    @sync_compatible
+    async def delete(self, name: str) -> None:
+        """Delete a bucket."""
+        self._api._ensure_connected()
+        await self._api._client.delete_bucket(Bucket=name)
+    
+    @staticmethod
+    def _is_not_found_error(e: ClientError) -> bool:
+        """Check if error indicates resource not found."""
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        err_code = e.response.get("Error", {}).get("Code")
+        return status in (400, 403, 404) or err_code in (
+            "NoSuchBucket", "AccessDenied", "InvalidBucketName", "InvalidRequest"
+        )
 
-    return wrapper
+# --------------- Object Operations ---------------------------------------------
+class ObjectOperations:
+    """Object-related operations."""
+    
+    def __init__(self, api: _StorageApi):
+        self._api = api
+    
+    @sync_compatible
+    async def put(
+        self,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        **kwargs
+    ) -> str:
+        """Upload object from bytes."""
+        self._api._ensure_connected()
+        await self._api._ensure_bucket_exists(bucket)
+        
+        params = {"Bucket": bucket, "Key": key, "Body": body}
+        params.update(self._build_put_params(content_type, metadata, kwargs))
+        
+        resp = await self._api._client.put_object(**params)
+        return resp.get("ETag", "")
+    
+    @sync_compatible
+    async def get_bytes(self, bucket: str, key: str) -> bytes:
+        """Download object as bytes."""
+        self._api._ensure_connected()
+        await self._api._ensure_bucket_exists(bucket)
+        
+        resp = await self._api._client.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+        try:
+            return await body.read()
+        finally:
+            body.close()
+    
+    @sync_compatible
+    async def stream(
+        self, 
+        bucket: str, 
+        key: str, 
+        chunk_size: Optional[int] = None
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream object content in chunks."""
+        self._api._ensure_connected()
+        await self._api._ensure_bucket_exists(bucket)
+        
+        chunk_size = chunk_size or self._api._config.default_chunk_size
+        resp = await self._api._client.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+        
+        try:
+            async for chunk in self._iter_body_chunks(body, chunk_size):
+                if chunk:
+                    yield chunk
+        finally:
+            body.close()
+    
+    @staticmethod
+    def _build_put_params(
+        content_type: Optional[str], 
+        metadata: Optional[Dict[str, str]], 
+        kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build parameters for put_object call."""
+        params = {}
+        if content_type:
+            params["ContentType"] = content_type
+        if metadata:
+            params["Metadata"] = metadata
+        
+        # Handle other optional parameters
+        for param in ["ACL", "CacheControl", "ContentDisposition"]:
+            snake_case = param.lower().replace("a", "a").replace("c", "_c")
+            if snake_case in kwargs:
+                params[param] = kwargs[snake_case]
+        
+        return params
+    
+    @staticmethod
+    async def _iter_body_chunks(body, chunk_size: int) -> AsyncGenerator[bytes, None]:
+        """Iterate over response body chunks."""
+        if hasattr(body, "iter_chunks"):
+            async for chunk in body.iter_chunks(chunk_size=chunk_size):
+                yield chunk
+        else:
+            while True:
+                chunk = await body.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
+    async def delete(self, bucket: str, key: str) -> None:
+        """Delete an object."""
+        self._api._ensure_connected()
+        await self._api._ensure_bucket_exists(bucket)
+        await self._api._client.delete_object(Bucket=bucket, Key=key)
 
 
-class StorageApi:
+# ----------------------------------------------------------------------------------
+# --------------- Internal StorageApi Class ----------------------------------------
+# ----------------------------------------------------------------------------------
+class _StorageApi:
     """
     Async MinIO/S3 client wrapper built on aioboto3.
     """
 
-    DEFAULT_ENV_PATH = "~/.ovalbee/storage_env"
-
     def __init__(
         self,
-        endpoint_url: str,
-        access_key: str,
-        secret_key: str,
-        region_name: Optional[str] = None,
-        use_ssl: bool = True,
-        addressing_style: str = "path",
-        max_pool_connections: int = 10,
-        read_timeout: int = 60,
-        connect_timeout: int = 10,
+        creds: Optional[MinioCredentials] = None,
         extra_config: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.endpoint_url = endpoint_url
-        self.access_key = access_key
-        self.secret_key = secret_key
-        self.use_ssl = use_ssl
-        self.region_name = (
-            region_name
-            or os.getenv("MINIO_REGION")
-            or os.getenv("AWS_REGION")
-            or os.getenv("AWS_DEFAULT_REGION")
-            or "us-east-1"
-        )
-
-        s3_cfg = {"addressing_style": addressing_style}
-        if extra_config and isinstance(extra_config.get("s3"), dict):
-            s3_cfg.update(extra_config["s3"])
-
-        self._config = Config(
-            signature_version="s3v4",
-            s3=s3_cfg,
-            retries={"max_attempts": 5, "mode": "standard"},
-            connect_timeout=connect_timeout,
-            read_timeout=read_timeout,
-            max_pool_connections=max_pool_connections,
-        )
-
+        self._creds = creds or MinioCredentials()
+        self._raw_config = StorageConfig()
+        self._config = self._raw_config.to_boto3_config(extra=extra_config)
         self._session = aioboto3.Session()
         self._client_cm = None
-        self.client = None  # type: ignore
+        self._client = None  # type: ignore
 
+        self.buckets = BucketOperations(self)
+        self.objects = ObjectOperations(self)
+
+    # --------------- Properties ---------------
+    @property
+    def is_connected(self) -> bool:
+        """Check if client is connected."""
+        return self._client is not None
+
+    # --------------- Factory Methods ---------------
     @classmethod
-    def from_env(cls) -> StorageApi:
+    def from_env(cls) -> _StorageApi:
         """
         Creates a StorageApi instance using environment variables.
         """
-        from dotenv import load_dotenv
+        return cls(creds=MinioCredentials())
 
-        load_dotenv(os.path.expanduser(cls.DEFAULT_ENV_PATH))
-        raw = os.getenv("MINIO_ROOT_URL", "http://localhost:9000")
-        if "://" not in raw:
-            endpoint_url = f"http://{raw}"
-            use_ssl = False
-        else:
-            endpoint_url = raw
-            use_ssl = raw.startswith("https://")
-
-        access_key = os.getenv("MINIO_ROOT_USER", "minioadmin")
-        secret_key = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
-
-        return cls(
-            endpoint_url=endpoint_url,
-            access_key=access_key,
-            secret_key=secret_key,
-            use_ssl=use_ssl,
-        )
-
-    async def __aenter__(self) -> StorageApi:
-        self._client_cm = self._session.client(
-            "s3",
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            use_ssl=self.use_ssl,
-            config=self._config,
-        )
-        self.client = await self._client_cm.__aenter__()  # type: ignore
-        return self
+    # --------------- Connection Management ---------------
+    async def __aenter__(self) -> _StorageApi:
+        return await self.connect()
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
 
-    def __enter__(self) -> StorageApi:
+    def __enter__(self) -> _StorageApi:
         """Sync context manager entry. Use connect() first in sync code."""
-        if self.client is None:
+        if self._client is None:
             asyncio.run(self.connect())
         return self
 
@@ -133,239 +274,49 @@ class StorageApi:
         except RuntimeError:
             pass
 
-    async def connect(self) -> "StorageApi":
+    async def connect(self) -> "_StorageApi":
         """Explicitly open the underlying S3 client."""
-        if self.client is not None:
+        if self.is_connected:
             return self
         self._client_cm = self._session.client(
-            "s3",
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            use_ssl=self.use_ssl,
+            service_name=self._raw_config.service_name,
+            endpoint_url=_normalize_url(self._creds.MINIO_ROOT_URL),
+            aws_access_key_id=self._creds.MINIO_ROOT_USER.get_secret_value(),
+            aws_secret_access_key=self._creds.MINIO_ROOT_PASSWORD.get_secret_value(),
+            use_ssl=_is_ssl_url(self._creds.MINIO_ROOT_URL),
             config=self._config,
         )
-        self.client = await self._client_cm.__aenter__()  # type: ignore
+        self._client = await self._client_cm.__aenter__()  # type: ignore
         return self
 
     async def close(self) -> None:
         """Explicitly close the underlying S3 client."""
         if self._client_cm is not None:
             await self._client_cm.__aexit__(None, None, None)
-        self.client = None
+        self._client = None
         self._client_cm = None
 
-    def _assert_client(self) -> None:
-        if self.client is None:
+    def _ensure_connected(self) -> None:
+        if not self.is_connected:
             raise RuntimeError(
                 "StorageApi is not connected. Use 'with StorageApi(...) as s:' or call 's.connect()' before using it."
             )
 
-    async def _validate_bucket_existance(self, bucket: str) -> None:
-        if not await self.bucket_exists(bucket):
+    async def _ensure_bucket_exists(self, bucket: str) -> None:
+        if not await self.buckets.exists(bucket):
             raise RuntimeError(f"Bucket does not exist: {bucket}")
 
-    # --------------- Bucket management ---------------
 
-    @sync_compatible
-    async def list_buckets(self) -> List[str]:
-        """
-        Returns a list of bucket names.
-        """
-        self._assert_client()
-        resp = await self.client.list_buckets()
-        return [b["Name"] for b in resp.get("Buckets", [])]
-
-    @sync_compatible
-    async def bucket_exists(self, bucket: str) -> bool:
-        """
-        Checks if a bucket exists.
-        """
-        self._assert_client()
-        try:
-            await self.client.head_bucket(Bucket=bucket)
-            return True
-        except ClientError as e:
-            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            err_code = e.response.get("Error", {}).get("Code")
-            if status in (400, 403, 404) or err_code in (
-                "NoSuchBucket",
-                "AccessDenied",
-                "InvalidBucketName",
-                "InvalidRequest",
-            ):
-                return False
-            raise
-
-    @sync_compatible
-    async def create_bucket(self, bucket: str) -> None:
-        """
-        Creates a bucket.
-        """
-        self._assert_client()
-        params: Dict[str, Any] = {"Bucket": bucket}
-        if self.region_name and self.region_name != "us-east-1":
-            params["CreateBucketConfiguration"] = {
-                "LocationConstraint": self.region_name
-            }
-        try:
-            await self.client.create_bucket(**params)
-        except Exception as e:
-            if "BucketAlreadyOwnedByYou" in e.args[0]:
-                return
-            raise
-
-    @sync_compatible
-    async def ensure_bucket(self, bucket: str) -> None:
-        """
-        Create the bucket if it does not exist.
-        """
-        self._assert_client()
-        if not await self.bucket_exists(bucket):
-            await self.create_bucket(bucket)
-
-    @sync_compatible
-    async def delete_bucket(self, bucket: str) -> None:
-        """
-        Deletes a bucket.
-        """
-        self._assert_client()
-        await self.client.delete_bucket(Bucket=bucket)
-
-    # --------------- Object CRUD ---------------
-
-    @sync_compatible
-    async def put_object(
-        self,
-        bucket: str,
-        key: str,
-        body: bytes,
-        content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
-        acl: Optional[str] = None,
-        cache_control: Optional[str] = None,
-        content_disposition: Optional[str] = None,
-    ) -> str:
-        """
-        Uploads a bytes payload as an object. Returns ETag.
-        """
-        self._assert_client()
-        params: Dict[str, Any] = dict(Bucket=bucket, Key=key, Body=body)
-        if content_type:
-            params["ContentType"] = content_type
-        if metadata:
-            params["Metadata"] = metadata
-        if acl:
-            params["ACL"] = acl
-        if cache_control:
-            params["CacheControl"] = cache_control
-        if content_disposition:
-            params["ContentDisposition"] = content_disposition
-
-        resp = await self.client.put_object(**params)
-        return resp.get("ETag", "")
-
-    @sync_compatible
-    async def get_object_bytes(self, bucket: str, key: str) -> bytes:
-        """
-        Downloads an object and returns its full bytes. Suitable for small/medium objects.
-        """
-        self._assert_client()
-        resp = await self.client.get_object(Bucket=bucket, Key=key)
-        body = resp["Body"]
-        data = await body.read()
-        body.close()
-        return data
-
-    @sync_compatible
-    async def stream_object(
-        self, bucket: str, key: str, chunk_size: int = 1024 * 1024
-    ) -> AsyncGenerator[bytes, None]:
-        """
-        Streams an object's bytes in chunks. Yields bytes. Caller consumes and writes to destination.
-        """
-        self._assert_client()
-        resp = await self.client.get_object(Bucket=bucket, Key=key)
-        body = resp["Body"]
-        try:
-            if hasattr(body, "iter_chunks"):
-                async for chunk in body.iter_chunks(chunk_size=chunk_size):
-                    if chunk:
-                        yield chunk
-            else:
-                while True:
-                    chunk = await body.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-        finally:
-            body.close()
-
-    @sync_compatible
-    async def get_object_metadata(self, bucket: str, key: str) -> Dict[str, Any]:
-        """
-        Returns object metadata (size, ETag, last-modified, etc.).
-        """
-        self._assert_client()
-        try:
-            head = await self.client.head_object(Bucket=bucket, Key=key)
-            return head.get("Metadata", {})
-        except ClientError as e:
-            return {}
-
-    @sync_compatible
-    async def object_exists(self, bucket: str, key: str) -> bool:
-        """
-        Returns True if the object exists.
-        """
-        self._assert_client()
-        try:
-            await self.client.head_object(Bucket=bucket, Key=key)
-            return True
-        except ClientError as e:
-            return False
-
-    @sync_compatible
-    async def delete_object(self, bucket: str, key: str) -> None:
-        """
-        Deletes a single object.
-        """
-        self._assert_client()
-        await self.client.delete_object(Bucket=bucket, Key=key)
-
-    async def copy_object(
-        self,
-        src_bucket: str,
-        src_key: str,
-        dst_bucket: str,
-        dst_key: str,
-        metadata: Optional[Dict[str, str]] = None,
-        metadata_directive: str = "COPY",
-        acl: Optional[str] = None,
-        content_type: Optional[str] = None,
-    ) -> str:
-        """
-        Server-side copy. Returns ETag of the destination.
-        """
-        self._assert_client()
-        params: Dict[str, Any] = {
-            "Bucket": dst_bucket,
-            "Key": dst_key,
-            "CopySource": {"Bucket": src_bucket, "Key": src_key},
-            "MetadataDirective": metadata_directive,
-        }
-        if metadata and metadata_directive == "REPLACE":
-            params["Metadata"] = metadata
-        if acl:
-            params["ACL"] = acl
-        if content_type:
-            params["ContentType"] = content_type
-
-        resp = await self.client.copy_object(**params)
-        return resp.get("CopyObjectResult", {}).get("ETag", "")
+# ----------------------------------------------------------------------------------
+# --------------- Main StorageApi Class ---------------------------------------------
+# ----------------------------------------------------------------------------------
+class StorageApi(_StorageApi):
+    """
+    High-level Storage API with bucket and object operations.
+    Combines BucketOperations, ObjectOperations and _StorageApi functionality.
+    """
 
     # --------------- Listing and bulk operations ---------------
-
     @sync_compatible
     async def iter_objects(
         self,
@@ -381,9 +332,9 @@ class StorageApi:
         - delimiter="/" produces 'CommonPrefixes' (folders).
         - include_dirs=True will yield folder entries as {"Prefix": "..."} in addition to objects.
         """
-        self._assert_client()
-        await self._validate_bucket_existance(bucket)
-        paginator = self.client.get_paginator("list_objects_v2")
+        self._ensure_connected()
+        await self._ensure_bucket_exists(bucket)
+        paginator = self._client.get_paginator("list_objects_v2")
         paginate_params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
         if delimiter is not None:
             paginate_params["Delimiter"] = delimiter
@@ -415,8 +366,8 @@ class StorageApi:
         Returns the raw response dict, including Contents, CommonPrefixes,
         IsTruncated, and NextContinuationToken for pagination.
         """
-        self._assert_client()
-        await self._validate_bucket_existance(bucket)
+        self._ensure_connected()
+        await self._ensure_bucket_exists(bucket)
         params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
         if delimiter is not None:
             params["Delimiter"] = delimiter
@@ -429,11 +380,10 @@ class StorageApi:
         if fetch_owner:
             params["FetchOwner"] = True
 
-        resp = await self.client.list_objects_v2(**params)
+        resp = await self._client.list_objects_v2(**params)
         return resp.get("Contents", [])
 
     # --------------- File helpers (local disk <-> S3) ---------------
-
     @sync_compatible
     async def upload_file(
         self,
@@ -449,12 +399,12 @@ class StorageApi:
         Uploads a local file. Uses single PUT for small files; multipart for large files.
         Returns ETag (for multipart, the ETag is not a simple MD5).
         """
-        self._assert_client()
-        await self._validate_bucket_existance(bucket)
+        self._ensure_connected()
+        await self._ensure_bucket_exists(bucket)
         if aiofiles is None:
             with open(file_path, "rb") as f:
                 data = f.read()
-            return await self.put_object(
+            return await self.objects.put(
                 bucket=bucket,
                 key=key,
                 body=data,
@@ -466,7 +416,7 @@ class StorageApi:
         if size < multipart_threshold:
             async with aiofiles.open(file_path, "rb") as f:
                 data = await f.read()
-            return await self.put_object(
+            return await self.objects.put(
                 bucket=bucket,
                 key=key,
                 body=data,
@@ -480,7 +430,7 @@ class StorageApi:
         if metadata:
             create_params["Metadata"] = metadata
 
-        resp = await self.client.create_multipart_upload(**create_params)
+        resp = await self._client.create_multipart_upload(**create_params)
         upload_id = resp["UploadId"]
         parts: List[Dict[str, Any]] = []
         part_number = 1
@@ -488,7 +438,7 @@ class StorageApi:
         try:
             async with aiofiles.open(file_path, "rb") as f:
                 while chunk := await f.read(part_size):
-                    up = await self.client.upload_part(
+                    up = await self._client.upload_part(
                         Bucket=bucket,
                         Key=key,
                         PartNumber=part_number,
@@ -498,7 +448,7 @@ class StorageApi:
                     parts.append({"PartNumber": part_number, "ETag": up["ETag"]})
                     part_number += 1
 
-            complete = await self.client.complete_multipart_upload(
+            complete = await self._client.complete_multipart_upload(
                 Bucket=bucket,
                 Key=key,
                 UploadId=upload_id,
@@ -507,7 +457,7 @@ class StorageApi:
             return complete.get("ETag", "")
         except Exception:
             try:
-                await self.client.abort_multipart_upload(
+                await self._client.abort_multipart_upload(
                     Bucket=bucket, Key=key, UploadId=upload_id
                 )
             except Exception:
@@ -529,7 +479,7 @@ class StorageApi:
         Uploads all files under 'dir_path' into bucket/prefix.
         Returns list of uploaded S3 keys.
         """
-        self._assert_client()
+        self._ensure_connected()
         await self.ensure_bucket(bucket)
         root = Path(dir_path).expanduser().resolve()
         if not root.is_dir():
@@ -576,12 +526,12 @@ class StorageApi:
         """
         Downloads an object to a local file, streaming to disk.
         """
-        self._assert_client()
-        await self._validate_bucket_existance(bucket)
+        self._ensure_connected()
+        await self._ensure_bucket_exists(bucket)
         if make_dirs:
             os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
 
-        resp = await self.client.get_object(Bucket=bucket, Key=key)
+        resp = await self._client.get_object(Bucket=bucket, Key=key)
         body = resp["Body"]
 
         if aiofiles is None:
@@ -621,8 +571,8 @@ class StorageApi:
         Downloads all objects under 'prefix' into 'dest_dir'.
         Returns list of local file paths written.
         """
-        self._assert_client()
-        await self._validate_bucket_existance(bucket)
+        self._ensure_connected()
+        await self._ensure_bucket_exists(bucket)
         dest_root = Path(dest_dir)
         written: List[str] = []
         sem = asyncio.Semaphore(concurrency)
@@ -635,9 +585,7 @@ class StorageApi:
             rel = key[len(norm_prefix) :].lstrip("/") if norm_prefix else key
             local_path = dest_root / rel
             async with sem:
-                await self.download_file(
-                    bucket, key, str(local_path), make_dirs=make_dirs
-                )
+                await self.download_file(bucket, key, str(local_path), make_dirs=make_dirs)
             return str(local_path)
 
         tasks: List[asyncio.Task] = []
@@ -672,6 +620,6 @@ class StorageApi:
         if response_content_disposition:
             params["ResponseContentDisposition"] = response_content_disposition
 
-        return self.client.generate_presigned_url(
+        return self._client.generate_presigned_url(
             "get_object", Params=params, ExpiresIn=expires_in, HttpMethod="GET"
         )
