@@ -1,259 +1,677 @@
-import asyncio
-import os
-from typing import List, Optional, Sequence, Tuple
-from urllib.parse import urlparse
+from __future__ import annotations
 
-from aioboto3 import Session
-from boto3 import client as boto3_client
+import asyncio
+import functools
+import os
+from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import aioboto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
-from minio import Minio
+
+try:
+    import aiofiles
+except ImportError:
+    aiofiles = None
+
+
+def sync_compatible(async_fn):
+    @functools.wraps(async_fn)
+    def wrapper(self, *args, **kwargs):
+        coro = async_fn(self, *args, **kwargs)
+        try:
+            asyncio.get_running_loop()
+            # We're in an async context, return the coroutine
+            return coro
+        except RuntimeError:
+            return asyncio.run(coro)
+
+    return wrapper
 
 
 class StorageApi:
     """
-    Ovalbee API connection to Storage service.
+    Async MinIO/S3 client wrapper built on aioboto3.
     """
 
-    def __init__(self):
-        pass
+    DEFAULT_ENV_PATH = "~/.ovalbee/storage_env"
 
-    # ----------------------------------------------------------------
-    # --- Methods for tests ------------------------------------------
-    # ----------------------------------------------------------------
-    def download_from_minio(self, file_id: str, dst_path: str) -> bytes:
+    def __init__(
+        self,
+        endpoint_url: str,
+        access_key: str,
+        secret_key: str,
+        region_name: Optional[str] = None,
+        use_ssl: bool = True,
+        addressing_style: str = "path",
+        max_pool_connections: int = 10,
+        read_timeout: int = 60,
+        connect_timeout: int = 10,
+        extra_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.endpoint_url = endpoint_url
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.use_ssl = use_ssl
+        self.region_name = (
+            region_name
+            or os.getenv("MINIO_REGION")
+            or os.getenv("AWS_REGION")
+            or os.getenv("AWS_DEFAULT_REGION")
+            or "us-east-1"
+        )
 
-        client = self.get_minio_client()
+        s3_cfg = {"addressing_style": addressing_style}
+        if extra_config and isinstance(extra_config.get("s3"), dict):
+            s3_cfg.update(extra_config["s3"])
 
-        if isinstance(file_id, str) and "/" in file_id:
-            bucket, src_path = file_id.split("/", 1)
-        else:
-            raise NotImplementedError()
+        self._config = Config(
+            signature_version="s3v4",
+            s3=s3_cfg,
+            retries={"max_attempts": 5, "mode": "standard"},
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            max_pool_connections=max_pool_connections,
+        )
 
-        self.minio_download_file(client, bucket, src_path, dst_path)
+        self._session = aioboto3.Session()
+        self._client_cm = None
+        self.client = None  # type: ignore
 
-    def upload_to_minio(self, src_path: str, dst_path: str) -> str:
+    @classmethod
+    def from_env(cls) -> StorageApi:
+        """
+        Creates a StorageApi instance using environment variables.
+        """
+        from dotenv import load_dotenv
 
-        client = self.get_minio_client()
-
-        if isinstance(dst_path, str) and "/" in dst_path:
-            bucket, key = dst_path.split("/", 1)
-        else:
-            raise NotImplementedError()
-
-        self.minio_upload_file(client, bucket, key, src_path)
-
-    def list_minio_keys(self, prefix: str = "") -> List[str]:
-
-        client = self.get_minio_client()
-
-        if isinstance(prefix, str) and "/" in prefix:
-            bucket, pre = prefix.split("/", 1)
-        else:
-            raise NotImplementedError()
-
-        return self.minio_list_keys(client, bucket, pre)
-
-    # ----------------------------------------------------------------
-    # --- Methods for tests ------------------------------------------
-    # ----------------------------------------------------------------
-
-    def _parse_endpoint_for_minio(self) -> Tuple[str, bool]:
-        raw = os.getenv("MINIO_ROOT_URL", "http://localhost:9000")
-        parsed = urlparse(raw if "://" in raw else f"http://{raw}")
-        endpoint = parsed.netloc or parsed.path
-        secure = parsed.scheme == "https"
-        return endpoint, secure
-
-    def _endpoint_url_for_boto3(self) -> str:
+        load_dotenv(os.path.expanduser(cls.DEFAULT_ENV_PATH))
         raw = os.getenv("MINIO_ROOT_URL", "http://localhost:9000")
         if "://" not in raw:
-            return f"http://{raw}"
-        return raw
+            endpoint_url = f"http://{raw}"
+            use_ssl = False
+        else:
+            endpoint_url = raw
+            use_ssl = raw.startswith("https://")
 
-    def _aws_creds(self) -> Tuple[str, str]:
-        return (
-            os.getenv("MINIO_ROOT_USER", "minioadmin"),
-            os.getenv("MINIO_ROOT_PASSWORD", "minioadmin"),
+        access_key = os.getenv("MINIO_ROOT_USER", "minioadmin")
+        secret_key = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
+
+        return cls(
+            endpoint_url=endpoint_url,
+            access_key=access_key,
+            secret_key=secret_key,
+            use_ssl=use_ssl,
         )
 
-    def get_minio_client(self) -> Minio:
-        endpoint, secure = self._parse_endpoint_for_minio()
-        user, password = self._aws_creds()
-        return Minio(endpoint, access_key=user, secret_key=password, secure=secure)
-
-    def get_boto3_client(self):
-        user, password = self._aws_creds()
-        return boto3_client(
+    async def __aenter__(self) -> StorageApi:
+        self._client_cm = self._session.client(
             "s3",
-            aws_access_key_id=user,
-            aws_secret_access_key=password,
-            endpoint_url=self._endpoint_url_for_boto3(),
+            endpoint_url=self.endpoint_url,
+            aws_access_key_id=self.access_key,
+            aws_secret_access_key=self.secret_key,
+            use_ssl=self.use_ssl,
+            config=self._config,
         )
+        self.client = await self._client_cm.__aenter__()  # type: ignore
+        return self
 
-    def get_aioboto3_client(self):
-        user, password = self._aws_creds()
-        session = Session()
-        return session.client(
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+    def __enter__(self) -> StorageApi:
+        """Sync context manager entry. Use connect() first in sync code."""
+        if self.client is None:
+            asyncio.run(self.connect())
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        """Sync context manager exit."""
+        try:
+            asyncio.run(self.close())
+        except RuntimeError:
+            pass
+
+    async def connect(self) -> "StorageApi":
+        """Explicitly open the underlying S3 client."""
+        if self.client is not None:
+            return self
+        self._client_cm = self._session.client(
             "s3",
-            aws_access_key_id=user,
-            aws_secret_access_key=password,
-            endpoint_url=self._endpoint_url_for_boto3(),
+            endpoint_url=self.endpoint_url,
+            aws_access_key_id=self.access_key,
+            aws_secret_access_key=self.secret_key,
+            use_ssl=self.use_ssl,
+            config=self._config,
         )
+        self.client = await self._client_cm.__aenter__()  # type: ignore
+        return self
 
-    def ensure_bucket_minio(self, client: Minio, bucket: str) -> None:
-        if not client.bucket_exists(bucket):
-            client.make_bucket(bucket)
+    async def close(self) -> None:
+        """Explicitly close the underlying S3 client."""
+        if self._client_cm is not None:
+            await self._client_cm.__aexit__(None, None, None)
+        self.client = None
+        self._client_cm = None
 
-    def ensure_bucket_boto3(self, s3, bucket: str) -> None:
+    def _assert_client(self) -> None:
+        if self.client is None:
+            raise RuntimeError(
+                "StorageApi is not connected. Use 'with StorageApi(...) as s:' or call 's.connect()' before using it."
+            )
+
+    async def _validate_bucket_existance(self, bucket: str) -> None:
+        if not await self.bucket_exists(bucket):
+            raise RuntimeError(f"Bucket does not exist: {bucket}")
+
+    # --------------- Bucket management ---------------
+
+    @sync_compatible
+    async def list_buckets(self) -> List[str]:
+        """
+        Returns a list of bucket names.
+        """
+        self._assert_client()
+        resp = await self.client.list_buckets()
+        return [b["Name"] for b in resp.get("Buckets", [])]
+
+    @sync_compatible
+    async def bucket_exists(self, bucket: str) -> bool:
+        """
+        Checks if a bucket exists.
+        """
+        self._assert_client()
         try:
-            s3.head_bucket(Bucket=bucket)
-        except ClientError:
-            s3.create_bucket(Bucket=bucket)
+            await self.client.head_bucket(Bucket=bucket)
+            return True
+        except ClientError as e:
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            err_code = e.response.get("Error", {}).get("Code")
+            if status in (400, 403, 404) or err_code in (
+                "NoSuchBucket",
+                "AccessDenied",
+                "InvalidBucketName",
+                "InvalidRequest",
+            ):
+                return False
+            raise
 
-    async def ensure_bucket_aioboto3(self, bucket: str) -> None:
-        async with self.get_aioboto3_client() as s3:
-            try:
-                await s3.head_bucket(Bucket=bucket)
-            except Exception:
-                await s3.create_bucket(Bucket=bucket)
-
-    def minio_upload_file(self, client: Minio, bucket: str, key: str, file_path: str) -> None:
-        self.ensure_bucket_minio(client, bucket)
-        client.fput_object(bucket, key, file_path)
-
-    def minio_download_file(self, client: Minio, bucket: str, key: str, dest_path: str) -> None:
-        obj = client.get_object(bucket, key)
+    @sync_compatible
+    async def create_bucket(self, bucket: str) -> None:
+        """
+        Creates a bucket.
+        """
+        self._assert_client()
+        params: Dict[str, Any] = {"Bucket": bucket}
+        if self.region_name and self.region_name != "us-east-1":
+            params["CreateBucketConfiguration"] = {
+                "LocationConstraint": self.region_name
+            }
         try:
-            with open(dest_path, "wb") as f:
-                for data in obj.stream(32 * 1024):
-                    f.write(data)
-        finally:
-            obj.close()
-            obj.release_conn()
+            await self.client.create_bucket(**params)
+        except Exception as e:
+            if "BucketAlreadyOwnedByYou" in e.args[0]:
+                return
+            raise
 
-    def minio_list_keys(self, client: Minio, bucket: str, prefix: str = "") -> List[str]:
-        return [o.object_name for o in client.list_objects(bucket, prefix=prefix, recursive=True)]
+    @sync_compatible
+    async def ensure_bucket(self, bucket: str) -> None:
+        """
+        Create the bucket if it does not exist.
+        """
+        self._assert_client()
+        if not await self.bucket_exists(bucket):
+            await self.create_bucket(bucket)
 
-    async def async_minio_upload_file(
-        self, client: Minio, bucket: str, key: str, file_path: str
-    ) -> None:
-        await asyncio.to_thread(self.minio_upload_file, client, bucket, key, file_path)
+    @sync_compatible
+    async def delete_bucket(self, bucket: str) -> None:
+        """
+        Deletes a bucket.
+        """
+        self._assert_client()
+        await self.client.delete_bucket(Bucket=bucket)
 
-    async def async_minio_download_file(
-        self, client: Minio, bucket: str, key: str, dest_path: str
-    ) -> None:
-        await asyncio.to_thread(self.minio_download_file, client, bucket, key, dest_path)
+    # --------------- Object CRUD ---------------
 
-    async def async_minio_list_keys(
-        self, client: Minio, bucket: str, prefix: str = ""
-    ) -> List[str]:
-        return await asyncio.to_thread(self.minio_list_keys, client, bucket, prefix)
-
-    def boto3_upload_file(self, s3, bucket: str, key: str, file_path: str) -> None:
-        self.ensure_bucket_boto3(s3, bucket)
-        s3.upload_file(Filename=file_path, Bucket=bucket, Key=key)
-
-    def boto3_download_file(self, s3, bucket: str, key: str, dest_path: str) -> None:
-        s3.download_file(Bucket=bucket, Key=key, Filename=dest_path)
-
-    def boto3_list_keys(self, s3, bucket: str, prefix: str = "") -> List[str]:
-        keys: List[str] = []
-        continuation_token: Optional[str] = None
-        while True:
-            kwargs = {"Bucket": bucket, "Prefix": prefix}
-            if continuation_token:
-                kwargs["ContinuationToken"] = continuation_token
-            resp = s3.list_objects_v2(**kwargs)
-            contents = resp.get("Contents", [])
-            keys.extend(obj["Key"] for obj in contents)
-            if resp.get("IsTruncated"):
-                continuation_token = resp.get("NextContinuationToken")
-            else:
-                break
-        return keys
-
-    async def async_boto3_upload_file(self, s3, bucket: str, key: str, file_path: str) -> None:
-        await asyncio.to_thread(self.boto3_upload_file, s3, bucket, key, file_path)
-
-    async def async_boto3_download_file(self, s3, bucket: str, key: str, dest_path: str) -> None:
-        await asyncio.to_thread(self.boto3_download_file, s3, bucket, key, dest_path)
-
-    async def async_boto3_list_keys(self, s3, bucket: str, prefix: str = "") -> List[str]:
-        return await asyncio.to_thread(self.boto3_list_keys, s3, bucket, prefix)
-
-    async def aioboto3_upload_file(self, bucket: str, key: str, file_path: str) -> None:
-        await self.ensure_bucket_aioboto3(bucket)
-
-        data = await asyncio.to_thread(lambda p=file_path: open(p, "rb").read())
-
-        async with self.get_aioboto3_client() as s3:
-            await s3.put_object(Bucket=bucket, Key=key, Body=data)
-
-    async def aioboto3_download_file(self, bucket: str, key: str, dest_path: str) -> None:
-        async with self.get_aioboto3_client() as s3:
-            resp = await s3.get_object(Bucket=bucket, Key=key)
-            body = await resp["Body"].read()
-
-        await asyncio.to_thread(lambda p=dest_path, b=body: open(p, "wb").write(b))
-
-    async def aioboto3_list_keys(self, bucket: str, prefix: str = "") -> List[str]:
-        keys: List[str] = []
-        continuation_token: Optional[str] = None
-        async with self.get_aioboto3_client() as s3:
-            while True:
-                kwargs = {"Bucket": bucket, "Prefix": prefix}
-                if continuation_token:
-                    kwargs["ContinuationToken"] = continuation_token
-                resp = await s3.list_objects_v2(**kwargs)
-                contents = resp.get("Contents", [])
-                keys.extend(obj["Key"] for obj in contents)
-                if resp.get("IsTruncated"):
-                    continuation_token = resp.get("NextContinuationToken")
-                else:
-                    break
-        return keys
-
-    async def async_minio_upload_many(
+    @sync_compatible
+    async def put_object(
         self,
-        client: Minio,
         bucket: str,
-        items: Sequence[Tuple[str, str]],
-        max_concurrency: int = 10,
-    ) -> None:
-        sem = asyncio.Semaphore(max_concurrency)
+        key: str,
+        body: bytes,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        acl: Optional[str] = None,
+        cache_control: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> str:
+        """
+        Uploads a bytes payload as an object. Returns ETag.
+        """
+        self._assert_client()
+        params: Dict[str, Any] = dict(Bucket=bucket, Key=key, Body=body)
+        if content_type:
+            params["ContentType"] = content_type
+        if metadata:
+            params["Metadata"] = metadata
+        if acl:
+            params["ACL"] = acl
+        if cache_control:
+            params["CacheControl"] = cache_control
+        if content_disposition:
+            params["ContentDisposition"] = content_disposition
 
-        async def _one(k: str, p: str):
+        resp = await self.client.put_object(**params)
+        return resp.get("ETag", "")
+
+    @sync_compatible
+    async def get_object_bytes(self, bucket: str, key: str) -> bytes:
+        """
+        Downloads an object and returns its full bytes. Suitable for small/medium objects.
+        """
+        self._assert_client()
+        resp = await self.client.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+        data = await body.read()
+        body.close()
+        return data
+
+    @sync_compatible
+    async def stream_object(
+        self, bucket: str, key: str, chunk_size: int = 1024 * 1024
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        Streams an object's bytes in chunks. Yields bytes. Caller consumes and writes to destination.
+        """
+        self._assert_client()
+        resp = await self.client.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+        try:
+            if hasattr(body, "iter_chunks"):
+                async for chunk in body.iter_chunks(chunk_size=chunk_size):
+                    if chunk:
+                        yield chunk
+            else:
+                while True:
+                    chunk = await body.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+        finally:
+            body.close()
+
+    @sync_compatible
+    async def get_object_metadata(self, bucket: str, key: str) -> Dict[str, Any]:
+        """
+        Returns object metadata (size, ETag, last-modified, etc.).
+        """
+        self._assert_client()
+        try:
+            head = await self.client.head_object(Bucket=bucket, Key=key)
+            return head.get("Metadata", {})
+        except ClientError as e:
+            return {}
+
+    @sync_compatible
+    async def object_exists(self, bucket: str, key: str) -> bool:
+        """
+        Returns True if the object exists.
+        """
+        self._assert_client()
+        try:
+            await self.client.head_object(Bucket=bucket, Key=key)
+            return True
+        except ClientError as e:
+            return False
+
+    @sync_compatible
+    async def delete_object(self, bucket: str, key: str) -> None:
+        """
+        Deletes a single object.
+        """
+        self._assert_client()
+        await self.client.delete_object(Bucket=bucket, Key=key)
+
+    async def copy_object(
+        self,
+        src_bucket: str,
+        src_key: str,
+        dst_bucket: str,
+        dst_key: str,
+        metadata: Optional[Dict[str, str]] = None,
+        metadata_directive: str = "COPY",
+        acl: Optional[str] = None,
+        content_type: Optional[str] = None,
+    ) -> str:
+        """
+        Server-side copy. Returns ETag of the destination.
+        """
+        self._assert_client()
+        params: Dict[str, Any] = {
+            "Bucket": dst_bucket,
+            "Key": dst_key,
+            "CopySource": {"Bucket": src_bucket, "Key": src_key},
+            "MetadataDirective": metadata_directive,
+        }
+        if metadata and metadata_directive == "REPLACE":
+            params["Metadata"] = metadata
+        if acl:
+            params["ACL"] = acl
+        if content_type:
+            params["ContentType"] = content_type
+
+        resp = await self.client.copy_object(**params)
+        return resp.get("CopyObjectResult", {}).get("ETag", "")
+
+    # --------------- Listing and bulk operations ---------------
+
+    @sync_compatible
+    async def iter_objects(
+        self,
+        bucket: str,
+        prefix: str = "",
+        delimiter: Optional[str] = None,
+        page_size: Optional[int] = None,
+        max_keys: Optional[int] = None,
+        include_dirs: bool = False,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Async generator yielding object summaries under a prefix.
+        - delimiter="/" produces 'CommonPrefixes' (folders).
+        - include_dirs=True will yield folder entries as {"Prefix": "..."} in addition to objects.
+        """
+        self._assert_client()
+        await self._validate_bucket_existance(bucket)
+        paginator = self.client.get_paginator("list_objects_v2")
+        paginate_params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+        if delimiter is not None:
+            paginate_params["Delimiter"] = delimiter
+        if page_size:
+            paginate_params["PaginationConfig"] = {"PageSize": page_size}
+        if max_keys:
+            paginate_params["MaxKeys"] = max_keys
+
+        async for page in paginator.paginate(**paginate_params):
+            if include_dirs and "CommonPrefixes" in page:
+                for d in page["CommonPrefixes"]:
+                    yield {"Prefix": d.get("Prefix")}
+            for obj in page.get("Contents", []):
+                yield obj
+
+    @sync_compatible
+    async def list_objects(
+        self,
+        bucket: str,
+        prefix: str = "",
+        delimiter: Optional[str] = None,
+        max_keys: Optional[int] = None,
+        continuation_token: Optional[str] = None,
+        start_after: Optional[str] = None,
+        fetch_owner: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Thin wrapper around S3 ListObjectsV2 API.
+        Returns the raw response dict, including Contents, CommonPrefixes,
+        IsTruncated, and NextContinuationToken for pagination.
+        """
+        self._assert_client()
+        await self._validate_bucket_existance(bucket)
+        params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+        if delimiter is not None:
+            params["Delimiter"] = delimiter
+        if max_keys is not None:
+            params["MaxKeys"] = max_keys
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+        if start_after:
+            params["StartAfter"] = start_after
+        if fetch_owner:
+            params["FetchOwner"] = True
+
+        resp = await self.client.list_objects_v2(**params)
+        return resp.get("Contents", [])
+
+    # --------------- File helpers (local disk <-> S3) ---------------
+
+    @sync_compatible
+    async def upload_file(
+        self,
+        file_path: str,
+        bucket: str,
+        key: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        multipart_threshold: int = 64 * 1024 * 1024,  # 64 MiB
+        part_size: int = 8 * 1024 * 1024,  # 8 MiB
+    ) -> str:
+        """
+        Uploads a local file. Uses single PUT for small files; multipart for large files.
+        Returns ETag (for multipart, the ETag is not a simple MD5).
+        """
+        self._assert_client()
+        await self._validate_bucket_existance(bucket)
+        if aiofiles is None:
+            with open(file_path, "rb") as f:
+                data = f.read()
+            return await self.put_object(
+                bucket=bucket,
+                key=key,
+                body=data,
+                content_type=content_type,
+                metadata=metadata,
+            )
+
+        size = os.path.getsize(file_path)
+        if size < multipart_threshold:
+            async with aiofiles.open(file_path, "rb") as f:
+                data = await f.read()
+            return await self.put_object(
+                bucket=bucket,
+                key=key,
+                body=data,
+                content_type=content_type,
+                metadata=metadata,
+            )
+
+        create_params: Dict[str, Any] = {"Bucket": bucket, "Key": key}
+        if content_type:
+            create_params["ContentType"] = content_type
+        if metadata:
+            create_params["Metadata"] = metadata
+
+        resp = await self.client.create_multipart_upload(**create_params)
+        upload_id = resp["UploadId"]
+        parts: List[Dict[str, Any]] = []
+        part_number = 1
+
+        try:
+            async with aiofiles.open(file_path, "rb") as f:
+                while chunk := await f.read(part_size):
+                    up = await self.client.upload_part(
+                        Bucket=bucket,
+                        Key=key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=chunk,
+                    )
+                    parts.append({"PartNumber": part_number, "ETag": up["ETag"]})
+                    part_number += 1
+
+            complete = await self.client.complete_multipart_upload(
+                Bucket=bucket,
+                Key=key,
+                UploadId=upload_id,
+                MultipartUpload={"Parts": parts},
+            )
+            return complete.get("ETag", "")
+        except Exception:
+            try:
+                await self.client.abort_multipart_upload(
+                    Bucket=bucket, Key=key, UploadId=upload_id
+                )
+            except Exception:
+                pass
+            raise
+
+    @sync_compatible
+    async def upload_dir(
+        self,
+        dir_path: str,
+        bucket: str,
+        prefix: str = "",
+        *,
+        concurrency: int = 8,
+        include_hidden: bool = True,
+        follow_symlinks: bool = False,
+    ) -> List[str]:
+        """
+        Uploads all files under 'dir_path' into bucket/prefix.
+        Returns list of uploaded S3 keys.
+        """
+        self._assert_client()
+        await self.ensure_bucket(bucket)
+        root = Path(dir_path).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Not a directory: {dir_path}")
+
+        uploaded: List[str] = []
+        sem = asyncio.Semaphore(concurrency)
+
+        key_prefix = prefix.strip("/")
+
+        def to_key(p: Path) -> str:
+            rel_posix = p.relative_to(root).as_posix()
+            return f"{key_prefix}/{rel_posix}" if key_prefix else rel_posix
+
+        async def _one(p: Path) -> str:
+            key = to_key(p)
             async with sem:
-                await self.async_minio_upload_file(client, bucket, k, p)
+                await self.upload_file(str(p), bucket=bucket, key=key)
+            return key
 
-        await asyncio.gather(*(_one(k, p) for k, p in items))
+        tasks: List[asyncio.Task] = []
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_symlinks):
+            dpath = Path(dirpath)
+            if not include_hidden:
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                filenames = [f for f in filenames if not f.startswith(".")]
 
-    async def async_boto3_upload_many(
-        self, s3, bucket: str, items: Sequence[Tuple[str, str]], max_concurrency: int = 10
+            for fname in filenames:
+                fpath = dpath / fname
+                if not follow_symlinks and fpath.is_symlink():
+                    continue
+                tasks.append(asyncio.create_task(_one(fpath)))
+
+        for res in await asyncio.gather(*tasks, return_exceptions=True):
+            if isinstance(res, Exception):
+                raise res
+            uploaded.append(res)
+        return uploaded
+
+    @sync_compatible
+    async def download_file(
+        self, bucket: str, key: str, file_path: str, make_dirs: bool = True
     ) -> None:
-        sem = asyncio.Semaphore(max_concurrency)
+        """
+        Downloads an object to a local file, streaming to disk.
+        """
+        self._assert_client()
+        await self._validate_bucket_existance(bucket)
+        if make_dirs:
+            os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
 
-        async def _one(k: str, p: str):
+        resp = await self.client.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+
+        if aiofiles is None:
+            data = await body.read()
+            body.close()
+            with open(file_path, "wb") as f:
+                f.write(data)
+            return
+
+        try:
+            async with aiofiles.open(file_path, "wb") as f:
+                if hasattr(body, "iter_chunks"):
+                    async for chunk in body.iter_chunks():
+                        if chunk:
+                            await f.write(chunk)
+                else:
+                    while True:
+                        chunk = await body.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        await f.write(chunk)
+        finally:
+            body.close()
+
+    @sync_compatible
+    async def download_dir(
+        self,
+        bucket: str,
+        prefix: str,
+        dest_dir: str,
+        *,
+        concurrency: int = 8,
+        make_dirs: bool = True,
+        skip_empty_dir_markers: bool = True,
+    ) -> List[str]:
+        """
+        Downloads all objects under 'prefix' into 'dest_dir'.
+        Returns list of local file paths written.
+        """
+        self._assert_client()
+        await self._validate_bucket_existance(bucket)
+        dest_root = Path(dest_dir)
+        written: List[str] = []
+        sem = asyncio.Semaphore(concurrency)
+
+        norm_prefix = prefix.lstrip("/")
+
+        async def _one(key: str) -> Optional[str]:
+            if skip_empty_dir_markers and key.endswith("/"):
+                return None
+            rel = key[len(norm_prefix) :].lstrip("/") if norm_prefix else key
+            local_path = dest_root / rel
             async with sem:
-                await self.async_boto3_upload_file(s3, bucket, k, p)
+                await self.download_file(
+                    bucket, key, str(local_path), make_dirs=make_dirs
+                )
+            return str(local_path)
 
-        await asyncio.gather(*(_one(k, p) for k, p in items))
+        tasks: List[asyncio.Task] = []
+        async for obj in self.iter_objects(bucket=bucket, prefix=norm_prefix):
+            key = obj.get("Key")
+            if not key:
+                continue
+            tasks.append(asyncio.create_task(_one(key)))
 
-    async def aioboto3_upload_many(
-        self, bucket: str, items: Sequence[Tuple[str, str]], max_concurrency: int = 10
-    ) -> None:
-        sem = asyncio.Semaphore(max_concurrency)
+        for res in await asyncio.gather(*tasks, return_exceptions=True):
+            if isinstance(res, Exception):
+                raise res
+            if res:
+                written.append(res)
+        return written
 
-        async def _read_file(path: str) -> bytes:
-            return await asyncio.to_thread(lambda p=path: open(p, "rb").read())
+    def generate_download_url(
+        self,
+        bucket: str,
+        key: str,
+        expires_in: int = 3600,
+        response_content_type: Optional[str] = None,
+        response_content_disposition: Optional[str] = None,
+    ) -> str:
+        """
+        Generates a presigned GET URL for downloading an object.
+        Note: This is a synchronous method as it doesn't require S3 communication.
+        """
+        params: Dict[str, Any] = {"Bucket": bucket, "Key": key}
+        if response_content_type:
+            params["ResponseContentType"] = response_content_type
+        if response_content_disposition:
+            params["ResponseContentDisposition"] = response_content_disposition
 
-        await self.ensure_bucket_aioboto3(bucket)
-
-        async with self.get_aioboto3_client() as s3:
-
-            async def _one(k: str, p: str):
-                async with sem:
-                    data = await _read_file(p)
-                    await s3.put_object(Bucket=bucket, Key=k, Body=data)
-
-            await asyncio.gather(*(_one(k, p) for k, p in items))
+        return self.client.generate_presigned_url(
+            "get_object", Params=params, ExpiresIn=expires_in, HttpMethod="GET"
+        )
