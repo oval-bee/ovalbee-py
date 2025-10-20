@@ -1,6 +1,6 @@
 from typing import List
 
-from ovalbee.api.base_api import CRUDModuleApi
+from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.asset import AssetInfo
 from ovalbee.domain.types.base import BaseInfo
 
