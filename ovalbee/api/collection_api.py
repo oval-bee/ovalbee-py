@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from ovalbee.api.module_api import CRUDModuleApi
+from ovalbee.domain.types.asset import AssetInfo
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.collection import CollectionInfo
 
@@ -41,7 +42,7 @@ class CollectionApi(CRUDModuleApi):
         self._delete(collection_id)
 
     # --- Add assets to collection ----------------------------------
-    def add_assets_to_collection(
+    def add_assets(
         self, collection_id: int, asset_ids: List[int]
     ) -> Optional[List[int]]:
         method = f"{self._endpoint_prefix()}/{collection_id}/add-assets"
@@ -54,7 +55,7 @@ class CollectionApi(CRUDModuleApi):
             raise Exception("Failed to add assets to collection")
 
     # --- Remove assets from collection -------------------------------
-    def remove_assets_from_collection(
+    def remove_assets(
         self, collection_id: int, asset_ids: List[int]
     ) -> Optional[List[int]]:
         method = f"{self._endpoint_prefix()}/{collection_id}/remove-assets"
@@ -65,3 +66,10 @@ class CollectionApi(CRUDModuleApi):
             return resp_json["assetIds"]
         else:
             raise Exception("Failed to remove assets from collection")
+
+    # --- Get assets in collection ------------------------------------
+    # def get_assets(self, collection_id: int) -> List[AssetInfo]:
+    #     method = f"{self._endpoint_prefix()}/{collection_id}/assets"
+    #     resp = self._api.get(method)
+    #     resp_json = resp.json()
+    #     return [AssetInfo(**asset) for asset in resp_json]
