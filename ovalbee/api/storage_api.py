@@ -3,8 +3,9 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from typing import AsyncIterator, Callable, List, Optional, Sequence, Tuple
+from typing import AsyncIterator, Awaitable, Callable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from aioboto3 import Session
@@ -12,6 +13,60 @@ from boto3 import client as boto3_client
 from botocore.exceptions import ClientError
 from minio import Minio
 from types_aiobotocore_s3.client import S3Client
+
+from ovalbee.io.fs import iter_files
+
+
+async def process_queue(
+    items_iterator: AsyncIterator,
+    worker_func: Callable[[any], Awaitable[None]],
+    concurrency: int = 100,
+) -> None:
+    """
+    Process many items concurrently with limited concurrency.
+    Cancels all pending tasks if any worker fails.
+    """
+
+    queue = asyncio.Queue(maxsize=concurrency * 2)
+    items_exhausted = asyncio.Event()
+    stop_event = asyncio.Event()
+
+    async def producer():
+        try:
+            async for item in items_iterator:
+                if stop_event.is_set():
+                    break
+                await queue.put(item)
+        except Exception as e:
+            stop_event.set()
+            raise e
+        finally:
+            items_exhausted.set()
+
+    async def worker():
+        while not stop_event.is_set():
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=0.2)
+            except asyncio.TimeoutError:
+                if items_exhausted.is_set() and queue.empty():
+                    return
+                continue
+
+            try:
+                await worker_func(item)
+            except Exception as e:
+                stop_event.set()
+                raise e
+            finally:
+                queue.task_done()
+
+    producer_task = asyncio.create_task(producer())
+    workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
+
+    results = await asyncio.gather(producer_task, *workers, return_exceptions=True)
+    for r in results:
+        if isinstance(r, Exception):
+            raise r
 
 
 @dataclass
@@ -86,9 +141,10 @@ class S3StorageClient:
         self.storage_url = storage_url
         self.session = Session(aws_access_key_id=access_key, aws_secret_access_key=secret_key)
         self.semaphore = semaphore
+        self._clients_cache = {}
 
     @asynccontextmanager
-    async def _maybe_with_semaphore(self):
+    async def _maybe_with_semaphore(self) -> AsyncIterator[None]:
         """Context manager that acquires semaphore if it exists, otherwise does nothing."""
         if self.semaphore:
             async with self.semaphore:
@@ -115,7 +171,12 @@ class S3StorageClient:
             storage_url = self.storage_url
         if region is None:
             region = self.region
-        return self.session.client("s3", region_name=region, endpoint_url=storage_url)
+        region_url_pair = (region, storage_url)
+        if region_url_pair not in self._clients_cache:
+            self._clients_cache[region_url_pair] = self.session.client(
+                "s3", region_name=region, endpoint_url=storage_url
+            )
+        return self._clients_cache[region_url_pair]
 
     async def iterate_objects(
         self,
@@ -265,6 +326,7 @@ class S3StorageClient:
         region: Optional[str] = None,
         storage_url: Optional[str] = None,
         progress_cb: Optional[Callable[[int], None]] = None,
+        skip_existing_files: Optional[bool] = False,
     ) -> None:
         """
         Download all objects with given prefix to local directory, preserving structure.
@@ -279,6 +341,7 @@ class S3StorageClient:
             region: Override default region
             storage_url: Override default storage URL
             progress_cb: Optional progress callback called for each downloaded chunk
+            skip_existing_files: Skip existing files. Will raise FileExistsError if not set
 
         Example:
             # Download entire directory
@@ -303,26 +366,44 @@ class S3StorageClient:
         if dir_key_prefix and dir_key_prefix[-1] != "/":
             dir_key_prefix = dir_key_prefix + "/"
         dir_path = Path(local_path)
-        dir_path.mkdir(parents=True, exist_ok=True)
-        tasks = []
-        async for obj in self.iterate_objects(
-            bucket=bucket, prefix=dir_key_prefix, region=region, storage_url=storage_url
-        ):
-            if obj.key.endswith("/"):
-                continue
-            relative_path = obj.key[len(dir_key_prefix) :].lstrip("/")
-            file_path = str(dir_path / relative_path)
-            tasks.append(
-                self.download(
-                    bucket=bucket,
-                    key=obj.key,
-                    local_path=file_path,
-                    region=region,
-                    storage_url=storage_url,
-                    progress_cb=progress_cb,
-                )
+
+        async def _items_iterator():
+            async for obj in self.iterate_objects(
+                bucket=bucket, prefix=dir_key_prefix, region=region, storage_url=storage_url
+            ):
+                if obj.key.endswith("/"):
+                    continue
+                relative_path = obj.key[len(dir_key_prefix) :].lstrip("/")
+                file_path = dir_path / relative_path
+                if file_path.exists():
+                    if skip_existing_files:
+                        if progress_cb is not None:
+                            progress_cb(obj.size)
+                        continue
+                    else:
+                        raise FileExistsError(f"File '{file_path}' already exists")
+                yield obj.key
+
+        async def _worker_function(obj_key: str):
+            if obj_key.endswith("/"):
+                return
+            relative_path = obj_key[len(dir_key_prefix) :].lstrip("/")
+            file_path = dir_path / relative_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            await self.download(
+                bucket=bucket,
+                key=obj_key,
+                local_path=file_path,
+                region=region,
+                storage_url=storage_url,
+                progress_cb=progress_cb,
             )
-        await asyncio.gather(*tasks)
+
+        await process_queue(
+            _items_iterator(),
+            _worker_function,
+            concurrency=100,  # 100 simultaneously opened files
+        )
 
     async def upload(
         self,
@@ -373,6 +454,40 @@ class S3StorageClient:
                         await s3.upload_fileobj(f, bucket, key, Callback=progress_cb)
                 else:
                     await s3.upload_file(file_path, bucket, key)
+
+    async def upload_dir(
+        self,
+        dir_path: str,
+        bucket: str,
+        dir_key_prefix: str,
+        region: Optional[str] = None,
+        storage_url: Optional[str] = None,
+        progress_cb: Optional[Callable[[int], None]] = None,
+    ):
+        if dir_key_prefix and dir_key_prefix[-1] != "/":
+            dir_key_prefix = dir_key_prefix + "/"
+
+        async def _items_iterator():
+            for file_path in iter_files(dir_path, recursive=True):
+                yield file_path
+
+        async def _worker_function(file_path: str):
+            relative_path = Path(file_path).relative_to(dir_path)
+            item_key = Path(dir_key_prefix, relative_path).as_posix()
+            await self.upload(
+                file_path=file_path,
+                bucket=bucket,
+                key=item_key,
+                region=region,
+                storage_url=storage_url,
+                progress_cb=progress_cb,
+            )
+
+        await process_queue(
+            _items_iterator(),
+            _worker_function,
+            concurrency=100,  # 100 simultaneously opened files
+        )
 
 
 class StorageApi:
