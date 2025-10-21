@@ -463,6 +463,41 @@ class S3StorageClient:
         storage_url: Optional[str] = None,
         progress_cb: Optional[Callable[[int], None]] = None,
     ):
+        """
+        Upload all files from a local directory to the specified S3 bucket, preserving structure.
+
+        Uploads files concurrently with automatic rate limiting if max_concurrency is set.
+        Directory structure under the specified local directory is preserved in the S3 bucket.
+
+        Args:
+            dir_path: Local directory path containing files to upload
+            bucket: Bucket name
+            dir_key_prefix: Prefix for objects to upload (e.g., "documents/reports/")
+            region: Override default region
+            storage_url: Override default storage URL
+            progress_cb: Optional progress callback called for each uploaded chunk
+
+        Example:
+            # Upload entire directory
+            await client.upload_dir(
+                dir_path="./data",
+                bucket="my-bucket",
+                dir_key_prefix="collections/"
+            )
+            # Uploads: ./data/collection1/img_1.png -> collections/collection1/img_1.png, etc.
+
+            # With progress tracking for each file
+            from tqdm import tqdm
+
+            with tqdm(unit='B', unit_scale=True, desc="Uploading") as pbar:
+                await client.upload_dir(
+                    dir_path="./data",
+                    bucket="my-bucket",
+                    dir_key_prefix="collections/",
+                    progress_cb=pbar.update
+                )
+        """
+
         if dir_key_prefix and dir_key_prefix[-1] != "/":
             dir_key_prefix = dir_key_prefix + "/"
 
