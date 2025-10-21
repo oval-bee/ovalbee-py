@@ -22,8 +22,8 @@ class ModuleApiTemplate(ABC):
     def _endpoint_prefix(self) -> str:
         pass
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def _info_class():
         pass
 
