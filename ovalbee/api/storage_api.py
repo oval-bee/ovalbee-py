@@ -99,6 +99,7 @@ class S3Object:
 
 
 # TODO: Remove region and storage_url from methods? It is not going to be used by most of the users.
+# TODO: Reuse session.client for all the downloads/uploads in download_dir and upload_dir
 class S3StorageClient:
     """
     Async S3-compatible storage client.
@@ -277,6 +278,7 @@ class S3StorageClient:
         region: Optional[str] = None,
         storage_url: Optional[str] = None,
         progress_cb: Optional[Callable[[int], None]] = None,
+        _session_client: Optional[S3Client] = None,
     ) -> None:
         """
         Download a file from storage.
