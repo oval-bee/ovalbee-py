@@ -3,7 +3,6 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
