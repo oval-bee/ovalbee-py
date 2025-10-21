@@ -23,7 +23,8 @@ class ModuleApiTemplate(ABC):
         pass
 
     @abstractmethod
-    def _info_class(self):
+    @staticmethod
+    def _info_class():
         pass
 
     def _creation_endpoint_name(self) -> str:
