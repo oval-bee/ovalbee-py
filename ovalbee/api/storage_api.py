@@ -16,6 +16,8 @@ try:
 except ImportError:
     aiofiles = None
 
+import atexit
+
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
 from ovalbee.io.decorators import sync_compatible
 
@@ -24,6 +26,7 @@ from ovalbee.io.decorators import sync_compatible
 @dataclass
 class StorageConfig:
     """Configuration for StorageApi client."""
+
     service_name: str = "s3"
     default_region: str = "us-east-1"
     addressing_style: str = "path"
@@ -54,17 +57,17 @@ class StorageConfig:
 # --------------- Bucket Operations ---------------------------------------------
 class BucketOperations:
     """Bucket-related operations."""
-    
+
     def __init__(self, api: _StorageApi):
         self._api = api
-    
+
     @sync_compatible
     async def list(self) -> List[str]:
         """List all bucket names."""
         self._api._ensure_connected()
         resp = await self._api._client.list_buckets()
         return [b["Name"] for b in resp.get("Buckets", [])]
-    
+
     @sync_compatible
     async def exists(self, name: str) -> bool:
         """Check if bucket exists."""
@@ -76,51 +79,55 @@ class BucketOperations:
             if self._is_not_found_error(e):
                 return False
             raise
-    
+
     @sync_compatible
     async def create(self, name: str) -> None:
         """Create a new bucket."""
         self._api._ensure_connected()
         params = {"Bucket": name}
-        
+
         region = self._api._creds.get_region()
         if region and region != self._api._config.default_region:
             params["CreateBucketConfiguration"] = {"LocationConstraint": region}
-        
+
         try:
             await self._api._client.create_bucket(**params)
         except Exception as e:
             if "BucketAlreadyOwnedByYou" not in str(e):
                 raise
-    
+
     @sync_compatible
     async def ensure(self, name: str) -> None:
         """Create bucket if it doesn't exist."""
         if not await self.exists(name):
             await self.create(name)
-    
+
     @sync_compatible
     async def delete(self, name: str) -> None:
         """Delete a bucket."""
         self._api._ensure_connected()
         await self._api._client.delete_bucket(Bucket=name)
-    
+
     @staticmethod
     def _is_not_found_error(e: ClientError) -> bool:
         """Check if error indicates resource not found."""
         status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         err_code = e.response.get("Error", {}).get("Code")
         return status in (400, 403, 404) or err_code in (
-            "NoSuchBucket", "AccessDenied", "InvalidBucketName", "InvalidRequest"
+            "NoSuchBucket",
+            "AccessDenied",
+            "InvalidBucketName",
+            "InvalidRequest",
         )
+
 
 # --------------- Object Operations ---------------------------------------------
 class ObjectOperations:
     """Object-related operations."""
-    
+
     def __init__(self, api: _StorageApi):
         self._api = api
-    
+
     @sync_compatible
     async def put(
         self,
@@ -129,58 +136,53 @@ class ObjectOperations:
         body: bytes,
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """Upload object from bytes."""
         self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
-        
+
         params = {"Bucket": bucket, "Key": key, "Body": body}
         params.update(self._build_put_params(content_type, metadata, kwargs))
-        
+
         resp = await self._api._client.put_object(**params)
         return resp.get("ETag", "")
-    
+
     @sync_compatible
     async def get_bytes(self, bucket: str, key: str) -> bytes:
         """Download object as bytes."""
         self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
-        
+
         resp = await self._api._client.get_object(Bucket=bucket, Key=key)
         body = resp["Body"]
         try:
             return await body.read()
         finally:
             body.close()
-    
+
     @sync_compatible
     async def stream(
-        self, 
-        bucket: str, 
-        key: str, 
-        chunk_size: Optional[int] = None
+        self, bucket: str, key: str, chunk_size: Optional[int] = None
     ) -> AsyncGenerator[bytes, None]:
         """Stream object content in chunks."""
         self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
-        
+
         chunk_size = chunk_size or self._api._config.default_chunk_size
         resp = await self._api._client.get_object(Bucket=bucket, Key=key)
         body = resp["Body"]
-        
+
         try:
             async for chunk in self._iter_body_chunks(body, chunk_size):
                 if chunk:
                     yield chunk
         finally:
             body.close()
-    
+
     @staticmethod
     def _build_put_params(
-        content_type: Optional[str], 
-        metadata: Optional[Dict[str, str]], 
-        kwargs: Dict[str, Any]
+        content_type: Optional[str], metadata: Optional[Dict[str, str]], kwargs: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Build parameters for put_object call."""
         params = {}
@@ -188,15 +190,15 @@ class ObjectOperations:
             params["ContentType"] = content_type
         if metadata:
             params["Metadata"] = metadata
-        
+
         # Handle other optional parameters
         for param in ["ACL", "CacheControl", "ContentDisposition"]:
             snake_case = param.lower().replace("a", "a").replace("c", "_c")
             if snake_case in kwargs:
                 params[param] = kwargs[snake_case]
-        
+
         return params
-    
+
     @staticmethod
     async def _iter_body_chunks(body, chunk_size: int) -> AsyncGenerator[bytes, None]:
         """Iterate over response body chunks."""
@@ -239,6 +241,7 @@ class _StorageApi:
 
         self.buckets = BucketOperations(self)
         self.objects = ObjectOperations(self)
+        atexit.register(lambda: asyncio.run(self.close()))
 
     # --------------- Properties ---------------
     @property
@@ -299,9 +302,10 @@ class _StorageApi:
 
     def _ensure_connected(self) -> None:
         if not self.is_connected:
-            raise RuntimeError(
-                "StorageApi is not connected. Use 'with StorageApi(...) as s:' or call 's.connect()' before using it."
-            )
+            # raise RuntimeError(
+            #     "StorageApi is not connected. Use 'with StorageApi(...) as s:' or call 's.connect()' before using it."
+            # )
+            asyncio.run(self.connect())
 
     async def _ensure_bucket_exists(self, bucket: str) -> None:
         if not await self.buckets.exists(bucket):
