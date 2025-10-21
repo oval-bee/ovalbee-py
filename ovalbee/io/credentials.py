@@ -50,6 +50,19 @@ class MinioCredentials(BaseSettings):
         """Get the MinIO/AWS region from the available environment variables."""
         return self.MINIO_REGION or self.AWS_REGION or self.AWS_DEFAULT_REGION or "us-east-1"
 
+    def validate_credentials(self) -> bool:
+        """Validate that all required MinIO credentials are present."""
+        try:
+            assert all(
+                [
+                    self.MINIO_ROOT_USER is not None,
+                    self.MINIO_ROOT_PASSWORD is not None,
+                    self.MINIO_ROOT_URL is not None,
+                ]
+            )
+        except AssertionError:
+            raise ValueError("Storage credentials are missing.")
+
 
 class CredentialConfig(BaseSettings):
     """

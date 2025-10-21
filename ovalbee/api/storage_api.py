@@ -278,6 +278,7 @@ class _StorageApi:
         """Explicitly open the underlying S3 client."""
         if self.is_connected:
             return self
+        self._creds.validate_credentials()
         self._client_cm = self._session.client(
             service_name=self._raw_config.service_name,
             endpoint_url=_normalize_url(self._creds.MINIO_ROOT_URL),
