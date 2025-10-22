@@ -323,11 +323,11 @@ class _StorageApi:
                 await instance._close()
             _connection_cache.clear()
 
-        def _sync_close_all_connections():
+        def _sync_close_all_connections(*args, **kwargs):
             _bg_run(_close_all_connections())
 
-        signal.signal(signal.SIGINT, lambda s, f: _sync_close_all_connections())
-        signal.signal(signal.SIGTERM, lambda s, f: _sync_close_all_connections())
+        signal.signal(signal.SIGINT, _sync_close_all_connections)
+        signal.signal(signal.SIGTERM, _sync_close_all_connections)
         atexit.register(_sync_close_all_connections)
 
     @classmethod
@@ -506,8 +506,7 @@ class StorageApi(_StorageApi):
         Uploads a local file. Uses single PUT for small files; multipart for large files.
         Returns ETag (for multipart, the ETag is not a simple MD5).
         """
-        # @TODO: validate
-        await self._api._ensure_connected()
+        await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         if aiofiles is None:
             with open(file_path, "rb") as f:
