@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -16,13 +16,13 @@ try:
 except ImportError:
     aiofiles = None
 
-import atexit
+import logging
 
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
-from ovalbee.io.decorators import sync_compatible
+from ovalbee.io.decorators import sync_compatible, sync_compatible_generator
 
 
-# --------------- Config dataclasses -------------------------------------------
+# ----------------------------------- dataclasses -------------------------------------------
 @dataclass
 class StorageConfig:
     """Configuration for StorageApi client."""
@@ -54,6 +54,36 @@ class StorageConfig:
         )
 
 
+@dataclass
+class S3Object:
+    """S3 object metadata"""
+
+    key: str
+    size: int
+    last_modified: datetime
+    etag: str
+    storage_class: Optional[str] = None
+
+    @classmethod
+    def from_s3_response(cls, obj: dict) -> "S3Object":
+        """
+        Create S3Object from S3 API response.
+
+        Args:
+            obj: Dictionary from S3 list_objects_v2 response
+
+        Returns:
+            S3Object instance with parsed metadata
+        """
+        return cls(
+            key=obj["Key"],
+            size=obj["Size"],
+            last_modified=obj["LastModified"],
+            etag=obj["ETag"].strip('"'),
+            storage_class=obj.get("StorageClass"),
+        )
+
+
 # --------------- Bucket Operations ---------------------------------------------
 class BucketOperations:
     """Bucket-related operations."""
@@ -64,14 +94,14 @@ class BucketOperations:
     @sync_compatible
     async def list(self) -> List[str]:
         """List all bucket names."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         resp = await self._api._client.list_buckets()
         return [b["Name"] for b in resp.get("Buckets", [])]
 
     @sync_compatible
     async def exists(self, name: str) -> bool:
         """Check if bucket exists."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         try:
             await self._api._client.head_bucket(Bucket=name)
             return True
@@ -83,7 +113,7 @@ class BucketOperations:
     @sync_compatible
     async def create(self, name: str) -> None:
         """Create a new bucket."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         params = {"Bucket": name}
 
         region = self._api._creds.get_region()
@@ -105,7 +135,7 @@ class BucketOperations:
     @sync_compatible
     async def delete(self, name: str) -> None:
         """Delete a bucket."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         await self._api._client.delete_bucket(Bucket=name)
 
     @staticmethod
@@ -139,7 +169,7 @@ class ObjectOperations:
         **kwargs,
     ) -> str:
         """Upload object from bytes."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
 
         params = {"Bucket": bucket, "Key": key, "Body": body}
@@ -151,7 +181,7 @@ class ObjectOperations:
     @sync_compatible
     async def get_bytes(self, bucket: str, key: str) -> bytes:
         """Download object as bytes."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
 
         resp = await self._api._client.get_object(Bucket=bucket, Key=key)
@@ -162,11 +192,20 @@ class ObjectOperations:
             body.close()
 
     @sync_compatible
+    async def get_size(self, bucket: str, key: str) -> int:
+        """Get size of an object in bytes."""
+        await self._api._ensure_connected()
+        await self._api._ensure_bucket_exists(bucket)
+
+        resp = await self._api._client.head_object(Bucket=bucket, Key=key)
+        return resp["ContentLength"]
+
+    @sync_compatible_generator
     async def stream(
         self, bucket: str, key: str, chunk_size: Optional[int] = None
     ) -> AsyncGenerator[bytes, None]:
         """Stream object content in chunks."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
 
         chunk_size = chunk_size or self._api._config.default_chunk_size
@@ -214,7 +253,7 @@ class ObjectOperations:
 
     async def delete(self, bucket: str, key: str) -> None:
         """Delete an object."""
-        self._api._ensure_connected()
+        await self._api._ensure_connected()
         await self._api._ensure_bucket_exists(bucket)
         await self._api._client.delete_object(Bucket=bucket, Key=key)
 
@@ -222,26 +261,40 @@ class ObjectOperations:
 # ----------------------------------------------------------------------------------
 # --------------- Internal StorageApi Class ----------------------------------------
 # ----------------------------------------------------------------------------------
+_connection_cache: Dict[str, _StorageApi] = {}
+
+
 class _StorageApi:
     """
     Async MinIO/S3 client wrapper built on aioboto3.
     """
+
+    _initialized = False
 
     def __init__(
         self,
         creds: Optional[MinioCredentials] = None,
         extra_config: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if getattr(self, "_ovalbee_inited", False):
+            return
+        self._ovalbee_inited = True
+
         self._creds = creds or MinioCredentials()
         self._raw_config = StorageConfig()
         self._config = self._raw_config.to_boto3_config(extra=extra_config)
         self._session = aioboto3.Session()
         self._client_cm = None
         self._client = None  # type: ignore
+        self._asyncio_lock = None
 
         self.buckets = BucketOperations(self)
         self.objects = ObjectOperations(self)
-        atexit.register(lambda: asyncio.run(self.close()))
+
+        if not _StorageApi._initialized:
+            _StorageApi._set_logging_levels(logging.WARNING)
+            _StorageApi._register_shutdown_hooks()
+            _StorageApi._initialized = True
 
     # --------------- Properties ---------------
     @property
@@ -257,55 +310,101 @@ class _StorageApi:
         """
         return cls(creds=MinioCredentials())
 
+    @classmethod
+    def _register_shutdown_hooks(cls) -> None:
+        """Register shutdown hooks to close all cached connections."""
+        import atexit
+        import signal
+
+        from ovalbee.io.decorators import _bg_run
+
+        async def _close_all_connections():
+            for instance in list(_connection_cache.values()):
+                await instance._close()
+            _connection_cache.clear()
+
+        def _sync_close_all_connections():
+            _bg_run(_close_all_connections())
+
+        signal.signal(signal.SIGINT, lambda s, f: _sync_close_all_connections())
+        signal.signal(signal.SIGTERM, lambda s, f: _sync_close_all_connections())
+        atexit.register(_sync_close_all_connections)
+
+    @classmethod
+    def _set_logging_levels(cls, level: int) -> None:
+        """Set logging levels for aioboto3 and botocore."""
+        # loggers_to_silence = [
+        #     "aioboto3",
+        #     "botocore",
+        #     "botocore.parsers",
+        #     "botocore.endpoint",
+        #     "botocore.hooks",
+        #     "botocore.credentials",
+        #     "s3transfer",
+        #     "urllib3",
+        #     "urllib3.connectionpool",
+        # ]
+        # for logger_name in loggers_to_silence:
+        #     logger = logging.getLogger(logger_name)
+        #     logger.setLevel(level)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+
     # --------------- Connection Management ---------------
-    async def __aenter__(self) -> _StorageApi:
-        return await self.connect()
+    def __new__(cls, creds: Optional[MinioCredentials] = None, **kwargs) -> _StorageApi:
+        """Override __new__ to use connection cache."""
+        creds = creds or MinioCredentials()
+        user = creds.MINIO_ROOT_USER
+        url = creds.MINIO_ROOT_URL
+        cache_key = f"{url}|{user}"
 
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
+        inst = _connection_cache.get(cache_key)
+        if inst is None:
+            inst = super().__new__(cls)
+            inst._cache_key = cache_key  # type: ignore[attr-defined]
+            _connection_cache[cache_key] = inst
+        else:
+            setattr(inst, "_cache_key", cache_key)
+        return inst
 
-    def __enter__(self) -> _StorageApi:
-        """Sync context manager entry. Use connect() first in sync code."""
-        if self._client is None:
-            asyncio.run(self.connect())
-        return self
+    async def _get_lock(self) -> asyncio.Lock:
+        """Get or create the asyncio lock (lazy initialization)."""
+        if self._asyncio_lock is None:
+            self._asyncio_lock = asyncio.Lock()
+        return self._asyncio_lock
 
-    def __exit__(self, exc_type, exc, tb):
-        """Sync context manager exit."""
-        try:
-            asyncio.run(self.close())
-        except RuntimeError:
-            pass
-
-    async def connect(self) -> "_StorageApi":
+    async def _connect(self) -> "_StorageApi":
         """Explicitly open the underlying S3 client."""
         if self.is_connected:
             return self
-        self._creds.validate_credentials()
-        self._client_cm = self._session.client(
-            service_name=self._raw_config.service_name,
-            endpoint_url=_normalize_url(self._creds.MINIO_ROOT_URL),
-            aws_access_key_id=self._creds.MINIO_ROOT_USER.get_secret_value(),
-            aws_secret_access_key=self._creds.MINIO_ROOT_PASSWORD.get_secret_value(),
-            use_ssl=_is_ssl_url(self._creds.MINIO_ROOT_URL),
-            config=self._config,
-        )
-        self._client = await self._client_cm.__aenter__()  # type: ignore
+        lock = await self._get_lock()
+        async with lock:
+            self._creds.validate_credentials()
+            self._client_cm = self._session.client(
+                service_name=self._raw_config.service_name,
+                endpoint_url=_normalize_url(self._creds.MINIO_ROOT_URL),
+                aws_access_key_id=self._creds.MINIO_ROOT_USER.get_secret_value(),
+                aws_secret_access_key=self._creds.MINIO_ROOT_PASSWORD.get_secret_value(),
+                use_ssl=_is_ssl_url(self._creds.MINIO_ROOT_URL),
+                config=self._config,
+            )
+            self._client = await self._client_cm.__aenter__()  # type: ignore
         return self
 
-    async def close(self) -> None:
+    async def _close(self) -> None:
         """Explicitly close the underlying S3 client."""
         if self._client_cm is not None:
             await self._client_cm.__aexit__(None, None, None)
         self._client = None
         self._client_cm = None
+        if self in _connection_cache.values():
+            creds_hash = hash((self._creds.MINIO_ROOT_USER, self._creds.MINIO_ROOT_URL))
+            _connection_cache.pop(creds_hash, None)
 
-    def _ensure_connected(self) -> None:
-        if not self.is_connected:
-            # raise RuntimeError(
-            #     "StorageApi is not connected. Use 'with StorageApi(...) as s:' or call 's.connect()' before using it."
-            # )
-            asyncio.run(self.connect())
+    async def _ensure_connected(self) -> None:
+        if self.is_connected:
+            return
+        await self._connect()
 
     async def _ensure_bucket_exists(self, bucket: str) -> None:
         if not await self.buckets.exists(bucket):
@@ -322,7 +421,7 @@ class StorageApi(_StorageApi):
     """
 
     # --------------- Listing and bulk operations ---------------
-    @sync_compatible
+    @sync_compatible_generator
     async def iter_objects(
         self,
         bucket: str,
@@ -331,13 +430,13 @@ class StorageApi(_StorageApi):
         page_size: Optional[int] = None,
         max_keys: Optional[int] = None,
         include_dirs: bool = False,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[S3Object, None]:
         """
         Async generator yielding object summaries under a prefix.
         - delimiter="/" produces 'CommonPrefixes' (folders).
         - include_dirs=True will yield folder entries as {"Prefix": "..."} in addition to objects.
         """
-        self._ensure_connected()
+        await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         paginator = self._client.get_paginator("list_objects_v2")
         paginate_params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
@@ -353,7 +452,7 @@ class StorageApi(_StorageApi):
                 for d in page["CommonPrefixes"]:
                     yield {"Prefix": d.get("Prefix")}
             for obj in page.get("Contents", []):
-                yield obj
+                yield S3Object.from_s3_response(obj)
 
     @sync_compatible
     async def list_objects(
@@ -365,13 +464,13 @@ class StorageApi(_StorageApi):
         continuation_token: Optional[str] = None,
         start_after: Optional[str] = None,
         fetch_owner: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> List[S3Object]:
         """
         Thin wrapper around S3 ListObjectsV2 API.
         Returns the raw response dict, including Contents, CommonPrefixes,
         IsTruncated, and NextContinuationToken for pagination.
         """
-        self._ensure_connected()
+        await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
         if delimiter is not None:
@@ -386,7 +485,10 @@ class StorageApi(_StorageApi):
             params["FetchOwner"] = True
 
         resp = await self._client.list_objects_v2(**params)
-        return resp.get("Contents", [])
+        contents = resp.get("Contents")
+        if contents is None:
+            return []
+        return [S3Object.from_s3_response(obj) for obj in contents]
 
     # --------------- File helpers (local disk <-> S3) ---------------
     @sync_compatible
@@ -404,7 +506,8 @@ class StorageApi(_StorageApi):
         Uploads a local file. Uses single PUT for small files; multipart for large files.
         Returns ETag (for multipart, the ETag is not a simple MD5).
         """
-        self._ensure_connected()
+        # @TODO: validate
+        await self._api._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         if aiofiles is None:
             with open(file_path, "rb") as f:
@@ -484,7 +587,7 @@ class StorageApi(_StorageApi):
         Uploads all files under 'dir_path' into bucket/prefix.
         Returns list of uploaded S3 keys.
         """
-        self._ensure_connected()
+        await self._ensure_connected()
         await self.ensure_bucket(bucket)
         root = Path(dir_path).expanduser().resolve()
         if not root.is_dir():
@@ -518,9 +621,7 @@ class StorageApi(_StorageApi):
                     continue
                 tasks.append(asyncio.create_task(_one(fpath)))
 
-        for res in await asyncio.gather(*tasks, return_exceptions=True):
-            if isinstance(res, Exception):
-                raise res
+        for res in await asyncio.gather(*tasks):
             uploaded.append(res)
         return uploaded
 
@@ -531,7 +632,7 @@ class StorageApi(_StorageApi):
         """
         Downloads an object to a local file, streaming to disk.
         """
-        self._ensure_connected()
+        await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         if make_dirs:
             os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
@@ -576,7 +677,7 @@ class StorageApi(_StorageApi):
         Downloads all objects under 'prefix' into 'dest_dir'.
         Returns list of local file paths written.
         """
-        self._ensure_connected()
+        await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         dest_root = Path(dest_dir)
         written: List[str] = []

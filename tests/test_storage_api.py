@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 
 from dotenv import load_dotenv
 
@@ -17,16 +18,23 @@ LOCAL_DIR = "./downloaded_dir"
 
 
 def test():
-    with api.storage as client:
-        buckets = client.buckets.list()
-        print(buckets)
+    t = time.perf_counter()
+    for i in range(3):
+        for f in api.storage.list_objects(BUCKET, PREFIX):
+            bytes = api.storage.objects.get_size(BUCKET, f.key)
+            print(bytes)
+    print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 
 async def async_test():
-    async with api.storage as client:
-        buckets = await client.buckets.list()
-        print(buckets)
+    t = time.perf_counter()
+    for i in range(3):
+        for f in await api.storage.list_objects(BUCKET, PREFIX):
+            bytes = await api.storage.objects.get_size(BUCKET, f.key)
+            print(bytes)
+    print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 
-test()
-asyncio.run(async_test())
+if __name__ == "__main__":
+    test()
+    asyncio.run(async_test())
