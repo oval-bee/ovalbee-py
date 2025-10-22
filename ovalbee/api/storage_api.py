@@ -276,10 +276,8 @@ class _StorageApi:
         creds: Optional[MinioCredentials] = None,
         extra_config: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if getattr(self, "_ovalbee_inited", False):
+        if self._initialized:
             return
-        self._ovalbee_inited = True
-
         self._creds = creds or MinioCredentials()
         self._raw_config = StorageConfig()
         self._config = self._raw_config.to_boto3_config(extra=extra_config)
@@ -291,10 +289,9 @@ class _StorageApi:
         self.buckets = BucketOperations(self)
         self.objects = ObjectOperations(self)
 
-        if not _StorageApi._initialized:
-            _StorageApi._set_logging_levels(logging.WARNING)
-            _StorageApi._register_shutdown_hooks()
-            _StorageApi._initialized = True
+        _StorageApi._set_logging_levels(logging.WARNING)
+        _StorageApi._register_shutdown_hooks()
+        _StorageApi._initialized = True
 
     # --------------- Properties ---------------
     @property
@@ -397,9 +394,6 @@ class _StorageApi:
             await self._client_cm.__aexit__(None, None, None)
         self._client = None
         self._client_cm = None
-        if self in _connection_cache.values():
-            creds_hash = hash((self._creds.MINIO_ROOT_USER, self._creds.MINIO_ROOT_URL))
-            _connection_cache.pop(creds_hash, None)
 
     async def _ensure_connected(self) -> None:
         if self.is_connected:
