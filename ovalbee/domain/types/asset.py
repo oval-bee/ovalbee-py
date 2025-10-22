@@ -12,6 +12,11 @@ from ovalbee.domain.types.file import FileInfo
 class AssetType(str, enum.Enum):
     IMAGES = "images"
     VIDEOS = "videos"
+    POINT_CLOUDS = "point_clouds"
+    VOLUMES = "volumes"
+    ANNOTATIONS = "annotations"
+    MODELS = "models"
+    BLOBS = "blobs"
 
 
 class AssetInfo(BaseInfo):
