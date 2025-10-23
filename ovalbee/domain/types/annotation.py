@@ -1,7 +1,7 @@
 import enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
@@ -21,18 +21,6 @@ class AnnotationResource(FileInfo):
     """File resource for annotation data."""
 
     format: Optional[AnnotationFormat] = None
-
-    # @property
-    # def format(self) -> Optional[AnnotationFormat]:
-    #     if self.metadata is not None:
-    #         return AnnotationFormat(self.metadata.get("format"))
-    #     return None
-
-    # @format.setter
-    # def format(self, value: AnnotationFormat) -> None:
-    #     if self.metadata is None:
-    #         self.metadata = {}
-    #     self.metadata["format"] = value
 
     # auto-set format in metadata when dumping
     def model_dump(self, *args: Any, **kwargs: Any):
@@ -65,7 +53,7 @@ class Annotation(BaseInfo):
     """Single annotation data in specific format."""
 
     # name: Optional[str] = None  # ??
-    workspace_id: Optional[int] = Field(alias="workspaceId")  # ??
+    space_id: Optional[int] = Field(alias="workspaceId")  # ??
     type: AssetType = AssetType.ANNOTATIONS
     resources: List[AnnotationResource] = Field(default_factory=list)
     source_id: Optional[str] = Field(
@@ -77,3 +65,9 @@ class Annotation(BaseInfo):
     @property
     def asset_id(self) -> Optional[str]:
         return self.source_id
+
+    @field_validator("resources")
+    def validate_resources(cls, v):
+        if v is None or len(v) == 0:
+            raise ValueError("At least one resource must be provided for an asset.")
+        return v

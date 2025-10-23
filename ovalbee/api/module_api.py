@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Generator, List, Optional
+from typing import Any, AsyncGenerator, Generator, List, Optional, Union
 
 import requests
 from pydantic import BaseModel
@@ -72,17 +72,33 @@ class ModuleApi(ModuleApiTemplate):
         response = self._get_response_by_id(space_id, id, self._endpoint_prefix())
         return self._info_class()(**response.json()) if response is not None else None
 
-    def _get_list_all_pages(self, space_id: int) -> List[Any]:
+    def _get_list_all_pages(
+        self,
+        space_id: int,
+        item_type: Optional[str] = None,
+        source_id: Union[str, List[str], None] = None,
+    ) -> List[Any]:
         """_get_list_all_pages"""
         # TODO: implement pagination
         # for now, we assume that all items fit in a single page
-        return list(self._get_list_all_pages_generator(space_id))
+        return list(
+            self._get_list_all_pages_generator(space_id, item_type=item_type, source_id=source_id)
+        )
 
-    def _get_list_all_pages_generator(self, space_id: int) -> Generator[Any, None, None]:
+    def _get_list_all_pages_generator(
+        self,
+        space_id: int,
+        item_type: Optional[str] = None,
+        source_id: Union[str, List[str], None] = None,
+    ) -> Generator[Any, None, None]:
         """_get_list_all_pages_generator"""
         # TODO: implement pagination
         # for now, we assume that all items fit in a single page
         params = {"workspaceId": space_id}
+        if item_type is not None:
+            params["type"] = item_type
+        if source_id is not None:
+            params["sourceId"] = source_id
         resp = self._api.get(method=self._endpoint_prefix(), params=params)
         resp_json = resp.json()
         if "items" in resp_json:
@@ -93,7 +109,7 @@ class ModuleApi(ModuleApiTemplate):
     def _create_bulk(self, items: List[BaseModel]) -> List[Any]:
         """_create_bulk"""
         data = {}
-        workspace_id = items[0].workspace_id if items else None  # temporary
+        space_id = items[0].space_id if items else None  # temporary
         items = [item.model_dump() for item in items]
         if self._create_field_name():
             data[self._create_field_name()] = items
@@ -107,7 +123,7 @@ class ModuleApi(ModuleApiTemplate):
         resp_json = resp.json()
         # TODO: update response handling / change API to return full objects
         ids = [item.get("id") for item in resp_json]
-        return [self.get_info_by_id(space_id=workspace_id, id=item_id) for item_id in ids]
+        return [self.get_info_by_id(space_id=space_id, id=item_id) for item_id in ids]
 
 
 class UpdatableModuleApi(ModuleApi):

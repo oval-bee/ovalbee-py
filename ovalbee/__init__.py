@@ -13,8 +13,10 @@ from typing import Optional
 from ovalbee.api.api import Api
 from ovalbee.domain.types.asset import AssetInfo
 from ovalbee.domain.types.collection import CollectionInfo
-from ovalbee.domain.types.file import FileInfo
+from ovalbee.domain.types.file import FileInfo, FileType
 from ovalbee.domain.types.space import SpaceInfo
+from ovalbee.domain.types.asset import AssetType, AssetInfo
+from ovalbee.domain.types.annotation import Annotation, AnnotationFormat, AnnotationResource, AnnotationTask
 
 # from ovalbee.client import ClientConfig, Ovalbee, login
 
@@ -26,4 +28,9 @@ __all__ = [
     "CollectionInfo",
     "FileInfo",
     "SpaceInfo",
+    "AssetType",
+    "AnnotationFormat",
+    "AnnotationResource",
+    "AnnotationTask",
+    "FileType",
 ]

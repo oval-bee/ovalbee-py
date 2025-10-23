@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Optional, Union
 
 from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.annotation import Annotation
+from ovalbee.domain.types.asset import AssetType
 from ovalbee.domain.types.base import BaseInfo
 
 
@@ -31,8 +32,23 @@ class AnnotationApi(CRUDModuleApi):
     def get_info_by_id(self, space_id: int, id: int) -> Annotation:
         return self._get_info_by_id(space_id, id)
 
-    def get_list(self, space_id: int) -> List[Annotation]:
-        return self._get_list_all_pages(space_id=space_id)
+    def get_list(
+        self,
+        space_id: int,
+        source_id: Union[str, List[str], None] = None,
+    ) -> List[Annotation]:
+        return self._get_list_all_pages(
+            space_id=space_id, item_type=AssetType.ANNOTATIONS.value, source_id=source_id
+        )
+    
+    def get_by_asset_id(
+        self,
+        space_id: int,
+        asset_id: str,
+    ) -> List[Annotation]:
+        return self._get_list_all_pages(
+            space_id=space_id, item_type=AssetType.ANNOTATIONS.value, source_id=asset_id
+        )
 
     # --- Update ---------------------------------------------------
     def update(self, asset_info: Annotation) -> Annotation:

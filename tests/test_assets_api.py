@@ -13,7 +13,7 @@ from ovalbee.domain.types.file import FileInfo, FileType
 def asset_info():
     file1 = FileInfo(key="image1.png", url="http://example.com/image1.png", type=FileType.INTERNAL)
     file2 = FileInfo(key="image2.png", url="http://example.com/image2.png", type=FileType.INTERNAL)
-    return AssetInfo(workspace_id=1, name="new.jpg", type=AssetType.IMAGES, resources=[file1, file2])
+    return AssetInfo(space_id=1, name="new.jpg", type=AssetType.IMAGES, resources=[file1, file2])
 
 
 api = Api(
@@ -34,7 +34,7 @@ def test_create_asset(asset_info):
     assert isinstance(created_asset.id, str)
     assert created_asset.type == AssetType.IMAGES
     assert len(created_asset.resources) == 2
-    assert created_asset.workspace_id == 1
+    assert created_asset.space_id == 1
 
 
 if __name__ == "__main__":

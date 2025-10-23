@@ -8,7 +8,7 @@ from ovalbee.domain.types.base import BaseInfo
 
 class CollectionInfo(BaseInfo):
     name: str = Field(..., description="Name of the collection")
-    workspace_id: int = Field(
+    space_id: int = Field(
         ...,
         alias="workspaceId",
         description="ID of the workspace the collection belongs to",

@@ -175,7 +175,7 @@ collection = space.collection("my-collection")
 # 3. List assets and their annotations
 assets = collection.assets()
 for asset in assets:
-    print(f"Asset: {asset.name}")
+    print(f"Asset: {asset.id}")
     annotations = asset.annotations()
     for ann in annotations:
         print(f" - Annotation ID: {ann.id}")

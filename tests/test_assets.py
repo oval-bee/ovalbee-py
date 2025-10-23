@@ -12,7 +12,7 @@ from ovalbee.domain.types.file import FileInfo, FileType
 def asset_info():
     file1 = FileInfo(key="image1.png")
     file2 = FileInfo(key="image2.png")
-    return AssetInfo(workspace_id=1, type=AssetType.IMAGES, resources=[file1, file2])
+    return AssetInfo(space_id=1, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 def test_asset_info_creation(asset_info):
@@ -22,7 +22,7 @@ def test_asset_info_creation(asset_info):
 
 
 def test_asset_info_empty_resources():
-    asset = AssetInfo(workspace_id=1, type=AssetType.VIDEOS)
+    asset = AssetInfo(space_id=1, type=AssetType.VIDEOS)
     assert asset.type == AssetType.VIDEOS
     assert len(asset.resources) == 0
 
@@ -35,7 +35,7 @@ def test_file_info_optional_fields():
 
 
 def test_asset_info_with_no_resources():
-    asset = AssetInfo(workspace_id=1, type=AssetType.IMAGES)
+    asset = AssetInfo(space_id=1, type=AssetType.IMAGES)
     assert asset.type == AssetType.IMAGES
     assert asset.resources == []
 

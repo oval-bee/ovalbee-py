@@ -17,20 +17,20 @@ NEW_COLLECTION_NAME = "temp_test_collection"
 def asset_info_1():
     file1 = FileInfo(key="doc1.jpg", type=FileType.INTERNAL)
     file2 = FileInfo(key="doc2.jpg", type=FileType.INTERNAL)
-    return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
+    return AssetInfo(space_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 @pytest.fixture
 def asset_info_2():
     file1 = FileInfo(key="doc3.jpg", type=FileType.INTERNAL)
     file2 = FileInfo(key="doc4.jpg", type=FileType.INTERNAL)
-    return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
+    return AssetInfo(space_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 @pytest.fixture
 def collection_info(asset_info_1, asset_info_2):
     return CollectionInfo(
-        workspace_id=SPACE_ID, name=NEW_COLLECTION_NAME, assets=[asset_info_1, asset_info_2]
+        space_id=SPACE_ID, name=NEW_COLLECTION_NAME, assets=[asset_info_1, asset_info_2]
     )
 
 
@@ -47,11 +47,11 @@ def test_list_collections():
 
 
 def test_create_collection():
-    collection_info = CollectionInfo(workspace_id=SPACE_ID, name=NEW_COLLECTION_NAME)
+    collection_info = CollectionInfo(space_id=SPACE_ID, name=NEW_COLLECTION_NAME)
     created_collection = api.collection.create(collection_info)
     assert isinstance(created_collection, CollectionInfo)
     assert created_collection.name == NEW_COLLECTION_NAME
-    assert created_collection.workspace_id == SPACE_ID
+    assert created_collection.space_id == SPACE_ID
 
 
 def test_add_remove_asset_in_collection(asset_info_2):
@@ -101,6 +101,7 @@ def test_get_collection_assets():
     assert isinstance(assets, list)
     assert all(isinstance(asset, AssetInfo) for asset in assets)
     assert len(assets) >= 0  # Can be empty
+
 
 if __name__ == "__main__":
     pytest.main()
