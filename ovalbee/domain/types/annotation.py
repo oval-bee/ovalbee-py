@@ -20,11 +20,37 @@ class AnnotationFormat(str, enum.Enum):
 class AnnotationResource(FileInfo):
     """File resource for annotation data."""
 
-    @property
-    def format(self) -> Optional[AnnotationFormat]:
-        if self.metadata is not None:
-            return AnnotationFormat(self.metadata.get("format"))
-        return None
+    format: Optional[AnnotationFormat] = None
+
+    # @property
+    # def format(self) -> Optional[AnnotationFormat]:
+    #     if self.metadata is not None:
+    #         return AnnotationFormat(self.metadata.get("format"))
+    #     return None
+
+    # @format.setter
+    # def format(self, value: AnnotationFormat) -> None:
+    #     if self.metadata is None:
+    #         self.metadata = {}
+    #     self.metadata["format"] = value
+
+    # auto-set format in metadata when dumping
+    def model_dump(self, *args: Any, **kwargs: Any):
+        data = super().model_dump(*args, **kwargs)
+        if self.format is not None:
+            if "metadata" not in data or data["metadata"] is None:
+                data["metadata"] = {}
+            data["metadata"]["format"] = self.format.value
+        return data
+
+    # auto-get format from metadata when loading
+    @classmethod
+    def model_validate(cls, data: Dict[str, Any]) -> "AnnotationResource":
+        if "metadata" in data and data["metadata"] is not None:
+            format_value = data["metadata"].get("format")
+            if format_value is not None:
+                data["format"] = AnnotationFormat(format_value)
+        return super().model_validate(data)
 
 
 class AnnotationTask(str, enum.Enum):
@@ -42,13 +68,11 @@ class Annotation(BaseInfo):
     workspace_id: Optional[int] = Field(alias="workspaceId")  # ??
     type: AssetType = AssetType.ANNOTATIONS
     resources: List[AnnotationResource] = Field(default_factory=list)
-    metadata: Optional[Dict[str, Any]] = None
-    source_id: Optional[int] = Field(
+    source_id: Optional[str] = Field(
         default=None,
         alias="sourceId",
         description="ID of the asset annotations belongs to",
     )
-    # label: Optional[str] = None
 
     @property
     def asset_id(self) -> Optional[str]:
