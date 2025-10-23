@@ -10,15 +10,15 @@ from ovalbee.domain.types.file import FileInfo, FileType
 
 @pytest.fixture
 def asset_info():
-    file1 = FileInfo(name="image1.png")
-    file2 = FileInfo(name="image2.png")
+    file1 = FileInfo(key="image1.png")
+    file2 = FileInfo(key="image2.png")
     return AssetInfo(workspace_id=1, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 def test_asset_info_creation(asset_info):
     assert asset_info.type == AssetType.IMAGES
     assert len(asset_info.resources) == 2
-    assert asset_info.resources[0].name == "image1.png"
+    assert asset_info.resources[0].key == "image1.png"
 
 
 def test_asset_info_empty_resources():
@@ -28,8 +28,8 @@ def test_asset_info_empty_resources():
 
 
 def test_file_info_optional_fields():
-    file_info = FileInfo(name="video1.mp4")
-    assert file_info.name == "video1.mp4"
+    file_info = FileInfo(key="video1.mp4")
+    assert file_info.key == "video1.mp4"
     assert file_info.url is None
     assert file_info.type == FileType.INTERNAL
 

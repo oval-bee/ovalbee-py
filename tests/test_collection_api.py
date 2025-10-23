@@ -15,15 +15,15 @@ NEW_COLLECTION_NAME = "temp_test_collection"
 
 @pytest.fixture
 def asset_info_1():
-    file1 = FileInfo(name="doc1.jpg", type=FileType.INTERNAL)
-    file2 = FileInfo(name="doc2.jpg", type=FileType.INTERNAL)
+    file1 = FileInfo(key="doc1.jpg", type=FileType.INTERNAL)
+    file2 = FileInfo(key="doc2.jpg", type=FileType.INTERNAL)
     return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 @pytest.fixture
 def asset_info_2():
-    file1 = FileInfo(name="doc3.jpg", type=FileType.INTERNAL)
-    file2 = FileInfo(name="doc4.jpg", type=FileType.INTERNAL)
+    file1 = FileInfo(key="doc3.jpg", type=FileType.INTERNAL)
+    file2 = FileInfo(key="doc4.jpg", type=FileType.INTERNAL)
     return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 

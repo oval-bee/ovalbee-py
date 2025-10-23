@@ -14,10 +14,10 @@ SPACE_ID = 1
 @pytest.fixture
 def ann_info():
     file1 = AnnotationResource(
-        name="image1.json", url="http://example.com/image1.json", type=FileType.INTERNAL, format=AnnotationFormat.SLY
+        key="image1.json", url="http://example.com/image1.json", type=FileType.INTERNAL, format=AnnotationFormat.SLY
     )
     file2 = AnnotationResource(
-        name="image2.json", url="http://example.com/image2.json", type=FileType.INTERNAL, format=AnnotationFormat.SLY
+        key="image2.json", url="http://example.com/image2.json", type=FileType.INTERNAL, format=AnnotationFormat.SLY
     )
     return Annotation(
         workspace_id=SPACE_ID,
@@ -45,7 +45,7 @@ def test_create_annotation(ann_info):
     assert isinstance(created_asset, Annotation)
     assert isinstance(created_asset.id, str)
     assert created_asset.type == AssetType.ANNOTATIONS
-    assert created_asset.resources == []
+    assert len(created_asset.resources) == 2
     assert created_asset.workspace_id == SPACE_ID
 
 

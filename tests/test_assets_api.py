@@ -11,8 +11,8 @@ from ovalbee.domain.types.file import FileInfo, FileType
 
 @pytest.fixture
 def asset_info():
-    file1 = FileInfo(name="image1.png", url="http://example.com/image1.png", type=FileType.INTERNAL)
-    file2 = FileInfo(name="image2.png", url="http://example.com/image2.png", type=FileType.INTERNAL)
+    file1 = FileInfo(key="image1.png", url="http://example.com/image1.png", type=FileType.INTERNAL)
+    file2 = FileInfo(key="image2.png", url="http://example.com/image2.png", type=FileType.INTERNAL)
     return AssetInfo(workspace_id=1, name="new.jpg", type=AssetType.IMAGES, resources=[file1, file2])
 
 
@@ -33,7 +33,7 @@ def test_create_asset(asset_info):
     assert isinstance(created_asset, AssetInfo)
     assert isinstance(created_asset.id, str)
     assert created_asset.type == AssetType.IMAGES
-    assert created_asset.resources == []
+    assert len(created_asset.resources) == 2
     assert created_asset.workspace_id == 1
 
 

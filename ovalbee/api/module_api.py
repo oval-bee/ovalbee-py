@@ -93,6 +93,7 @@ class ModuleApi(ModuleApiTemplate):
     def _create_bulk(self, items: List[BaseModel]) -> List[Any]:
         """_create_bulk"""
         data = {}
+        workspace_id = items[0].workspace_id if items else None  # temporary
         items = [item.model_dump() for item in items]
         if self._create_field_name():
             data[self._create_field_name()] = items
@@ -104,7 +105,9 @@ class ModuleApi(ModuleApiTemplate):
             method += f"/{self._creation_endpoint_name()}"
         resp = self._api.post(method, data=data)
         resp_json = resp.json()
-        return [self._info_class()(**item) for item in resp_json]
+        # TODO: update response handling / change API to return full objects
+        ids = [item.get("id") for item in resp_json]
+        return [self.get_info_by_id(space_id=workspace_id, id=item_id) for item_id in ids]
 
 
 class UpdatableModuleApi(ModuleApi):
