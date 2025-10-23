@@ -16,7 +16,7 @@ class AssetApi(CRUDModuleApi):
 
     # --- Creation -------------------------------------------------
     def _creation_endpoint_name(self) -> str:
-        return "bulk"
+        return "bulkCreate"
 
     def _create_field_name(self) -> str:
         return "assets"

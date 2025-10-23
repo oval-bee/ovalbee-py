@@ -24,6 +24,6 @@ class AssetInfo(BaseInfo):
     workspace_id: Optional[int] = Field(alias="workspaceId")
     type: AssetType = AssetType.IMAGES
     resources: List[FileInfo] = Field(default_factory=list)
-    source_id: Optional[int] = Field(default=None, alias="sourceId")
+    source_id: Optional[str] = Field(default=None, alias="sourceId")
     label: Optional[str] = None
     uploaded_at: Optional[str] = Field(default=None, alias="uploadedAt")

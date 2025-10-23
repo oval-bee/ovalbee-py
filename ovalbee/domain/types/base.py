@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,7 +11,7 @@ def _snake_to_camel(name: str) -> str:
 
 class BaseInfo(BaseModel):
     id: Optional[str] = None
-    metadata: Optional[Dict] = None
+    metadata: Union[Dict[str, Any], None] = Field(default_factory=dict)
     # created_at: datetime = Field(default_factory=datetime.now)
     # updated_at: datetime = Field(default_factory=datetime.now)
 

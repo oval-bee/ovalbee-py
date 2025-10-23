@@ -70,7 +70,7 @@ class ModuleApi(ModuleApiTemplate):
     def _get_info_by_id(self, space_id, id):
         """_get_info_by_id"""
         response = self._get_response_by_id(space_id, id, self._endpoint_prefix())
-        return self._info_class(response) if response else None
+        return self._info_class()(**response.json()) if response is not None else None
 
     def _get_list_all_pages(self, space_id: int) -> List[Any]:
         """_get_list_all_pages"""
@@ -85,6 +85,8 @@ class ModuleApi(ModuleApiTemplate):
         params = {"workspaceId": space_id}
         resp = self._api.get(method=self._endpoint_prefix(), params=params)
         resp_json = resp.json()
+        if "items" in resp_json:
+            resp_json = resp_json["items"]
         for item in resp_json:
             yield self._info_class()(**item)
 

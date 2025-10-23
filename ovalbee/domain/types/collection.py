@@ -18,6 +18,10 @@ class CollectionInfo(BaseInfo):
         alias="createdAt",
         description="Creation timestamp of the collection",
     )
+    assets: List[AssetInfo] = Field(
+        default_factory=list,
+        description="List of assets in the collection",
+    )
     # updated_at: Optional[str] = Field(default=None, alias="updatedAt", description="Last update timestamp of the collection")
     # assets: List[AssetInfo] = Field(default_factory=list, description="List of assets in the collection")
     # assets: List[int] = Field(default_factory=list, description="List of asset IDs in the collection")
