@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 try:
     import numpy as np
@@ -182,3 +182,19 @@ def sly_ann_to_yolo(
         )
         yolo_lines.extend(lines)
     return yolo_lines
+
+
+def read_sly_file(file_path: str, meta: Union[Dict, sly.ProjectMeta]) -> sly.Annotation:
+    """Read Supervisely annotation from a JSON file."""
+    if isinstance(meta, dict):
+        meta = sly.ProjectMeta.from_json(meta)
+    ann_json = sly.json.load_json_file(file_path)
+    ann = sly.Annotation.from_json(ann_json, meta=meta)
+    return ann
+
+
+def write_yolo_file(yolo_lines: List[str], save_path: str) -> None:
+    """Write YOLO annotation lines to a text file."""
+    with open(save_path, "w") as f:
+        for line in yolo_lines:
+            f.write(line + "\n")
