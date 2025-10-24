@@ -16,9 +16,18 @@ dependencies = [
     "botocore>=1.40.49",
     "pydantic>=2.12.2",
     "pydantic-settings>=2.11.0",
+    "requests_toolbelt",
+    "httpx",
+    "types-aiobotocore-s3",
+    "aioboto3",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "boto3",
+    "minio",
+]
+image = [
+    "numpy>=2.2.6",
 ]

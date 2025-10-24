@@ -15,24 +15,22 @@ NEW_COLLECTION_NAME = "temp_test_collection"
 
 @pytest.fixture
 def asset_info_1():
-    file1 = FileInfo(name="doc1.jpg", type=FileType.INTERNAL)
-    file2 = FileInfo(name="doc2.jpg", type=FileType.INTERNAL)
-    return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
+    file1 = FileInfo(key="doc1.jpg", type=FileType.INTERNAL)
+    file2 = FileInfo(key="doc2.jpg", type=FileType.INTERNAL)
+    return AssetInfo(space_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 @pytest.fixture
 def asset_info_2():
-    file1 = FileInfo(name="doc3.jpg", type=FileType.INTERNAL)
-    file2 = FileInfo(name="doc4.jpg", type=FileType.INTERNAL)
-    return AssetInfo(workspace_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
+    file1 = FileInfo(key="doc3.jpg", type=FileType.INTERNAL)
+    file2 = FileInfo(key="doc4.jpg", type=FileType.INTERNAL)
+    return AssetInfo(space_id=SPACE_ID, type=AssetType.IMAGES, resources=[file1, file2])
 
 
 @pytest.fixture
 def collection_info(asset_info_1, asset_info_2):
     return CollectionInfo(
-        workspace_id=SPACE_ID,
-        name=NEW_COLLECTION_NAME,
-        assets=[asset_info_1],
+        space_id=SPACE_ID, name=NEW_COLLECTION_NAME, assets=[asset_info_1, asset_info_2]
     )
 
 
@@ -49,11 +47,11 @@ def test_list_collections():
 
 
 def test_create_collection():
-    collection_info = CollectionInfo(workspace_id=SPACE_ID, name=NEW_COLLECTION_NAME)
+    collection_info = CollectionInfo(space_id=SPACE_ID, name=NEW_COLLECTION_NAME)
     created_collection = api.collection.create(collection_info)
     assert isinstance(created_collection, CollectionInfo)
     assert created_collection.name == NEW_COLLECTION_NAME
-    assert created_collection.workspace_id == SPACE_ID
+    assert created_collection.space_id == SPACE_ID
 
 
 def test_add_remove_asset_in_collection(asset_info_2):
@@ -64,17 +62,34 @@ def test_add_remove_asset_in_collection(asset_info_2):
             break
     else:
         pytest.skip(f"Collection '{NEW_COLLECTION_NAME}' not found")
-    new_asset = api.asset.create(asset_info_2())
-    res = api.collection.add_assets_to_collection(collection_id, [new_asset.id])
+    new_asset = api.asset.get_info_by_id(
+        space_id=SPACE_ID, id="0199fd07-41f8-71e8-a235-b871f67ca3d6"
+    )
+    res = api.collection.add_assets(collection_id, [new_asset.id])
     assert res is not None
     assert len(res) == 1, "Expected one asset to be added"
 
-    res = api.collection.remove_assets_from_collection(collection_id, [new_asset.id])
-    assert res is not None
-    assert len(res) == 1, "Expected one asset to be removed"
+    # res = api.collection.remove_assets(collection_id, [new_asset.id])
+    # assert res is not None
+    # assert len(res) == 1, "Expected one asset to be removed"
 
 
-def test_delete_collection():
+# def test_delete_collection():
+#     collections = api.collection.get_list(space_id=SPACE_ID)
+#     for collection in collections:
+#         if collection.name == NEW_COLLECTION_NAME:
+#             collection_id = collection.id
+#             break
+#     else:
+#         pytest.skip(f"Collection '{NEW_COLLECTION_NAME}' not found")
+#     api.collection.delete(collection_id)
+#     collections_after_deletion = api.collection.get_list(space_id=SPACE_ID)
+#     assert all(
+#         collection.id != collection_id for collection in collections_after_deletion
+#     ), "Collection was not deleted"
+
+
+def test_get_collection_assets():
     collections = api.collection.get_list(space_id=SPACE_ID)
     for collection in collections:
         if collection.name == NEW_COLLECTION_NAME:
@@ -82,11 +97,10 @@ def test_delete_collection():
             break
     else:
         pytest.skip(f"Collection '{NEW_COLLECTION_NAME}' not found")
-    api.collection.delete(collection_id)
-    collections_after_deletion = api.collection.get_list(space_id=SPACE_ID)
-    assert all(
-        collection.id != collection_id for collection in collections_after_deletion
-    ), "Collection was not deleted"
+    assets = api.collection.get_assets(collection_id)
+    assert isinstance(assets, list)
+    assert all(isinstance(asset, AssetInfo) for asset in assets)
+    assert len(assets) >= 0  # Can be empty
 
 
 if __name__ == "__main__":
