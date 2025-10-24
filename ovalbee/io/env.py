@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from ovalbee.io.credentials import CredentialSettings
+from ovalbee.io.credentials import CredentialConfig
 
 OVALBEE_ENV_FILENAME = "ovalbee.env"
 
