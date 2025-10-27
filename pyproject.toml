@@ -12,13 +12,13 @@ description = "Ovalbee python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "botocore>=1.40.49",
     "pydantic>=2.12.2",
     "pydantic-settings>=2.11.0",
+    "aioboto3",
+    "botocore",
     "requests_toolbelt",
     "httpx[http2]",
     "types-aiobotocore-s3",
-    "aioboto3",
 ]
 
 [dependency-groups]
