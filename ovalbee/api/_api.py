@@ -53,13 +53,10 @@ class _Api:
         token: Optional[str] = None,
         retry_count: Optional[int] = 10,
         retry_sleep_sec: Optional[int] = None,
-        use_public_api: Optional[bool] = True,
     ):
         # authorization
         self._token = token
         self._server_address = server_address
-        self._api_server_address = None
-        self._use_public_api = use_public_api
         self._headers = {"Authorization": self._token} if self._token else {}
         self._additional_headers = {}
 
@@ -365,13 +362,13 @@ class _Api:
         """
         Prepares the API endpoint URL.
         """
-        prefix = "internal" if not use_public_api else ""
-        url = os.path.join(self.api_server_address, prefix)
+        url = self.api_server_address
+        if not use_public_api:
+            url = os.path.join(url, "internal")
+
         if API_VERSION:
             url = os.path.join(url, API_VERSION)
         url = os.path.join(url, method)
-        if use_public_api is False:
-            url = os.path.join(self._server_address, method)
         return url
 
     @staticmethod
@@ -542,10 +539,6 @@ class _Api:
             # Output:
             # 'https://app.ovalbee.com/public/api'
         """
-
-        if self._api_server_address is not None:
-            return self._api_server_address
-
         return f"{self._server_address}/api"
 
     def post_httpx(
