@@ -145,6 +145,9 @@ class ObjectOperations:
     ) -> str:
         """Upload object from bytes."""
         await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "local":
+            logging.warning("On-premise mode: overriding bucket name to 'local'")
+            bucket = "local"
         await self._api._ensure_bucket_exists(bucket)
 
         params = {"Bucket": bucket, "Key": key, "Body": body}
@@ -157,6 +160,9 @@ class ObjectOperations:
     async def get_bytes(self, bucket: str, key: str) -> bytes:
         """Download object as bytes."""
         await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "local":
+            logging.warning("On-premise mode: overriding bucket name to 'local'")
+            bucket = "local"
         await self._api._ensure_bucket_exists(bucket)
 
         resp = await self._api._client.get_object(Bucket=bucket, Key=key)
@@ -170,6 +176,9 @@ class ObjectOperations:
     async def get_size(self, bucket: str, key: str) -> int:
         """Get size of an object in bytes."""
         await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "local":
+            logging.warning("On-premise mode: overriding bucket name to 'local'")
+            bucket = "local"
         await self._api._ensure_bucket_exists(bucket)
 
         resp = await self._api._client.head_object(Bucket=bucket, Key=key)
@@ -181,6 +190,9 @@ class ObjectOperations:
     ) -> AsyncGenerator[bytes, None]:
         """Stream object content in chunks."""
         await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "local":
+            logging.warning("On-premise mode: overriding bucket name to 'local'")
+            bucket = "local"
         await self._api._ensure_bucket_exists(bucket)
 
         chunk_size = chunk_size or self._api._config.default_chunk_size
@@ -229,6 +241,8 @@ class ObjectOperations:
     async def delete(self, bucket: str, key: str) -> None:
         """Delete an object."""
         await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "local":
+            raise RuntimeError("Incorrect bucket for on-premise mode; must be 'local'")
         await self._api._ensure_bucket_exists(bucket)
         await self._api._client.delete_object(Bucket=bucket, Key=key)
 
@@ -402,8 +416,8 @@ class StorageApi(_StorageApi):
     @sync_compatible_generator
     async def iter_objects(
         self,
-        bucket: str,
         prefix: str = "",
+        bucket: str = "local",
         delimiter: Optional[str] = None,
         page_size: Optional[int] = None,
         max_keys: Optional[int] = None,
@@ -435,8 +449,8 @@ class StorageApi(_StorageApi):
     @sync_compatible
     async def list_objects(
         self,
-        bucket: str,
         prefix: str = "",
+        bucket: str = "local",
         delimiter: Optional[str] = None,
         max_keys: Optional[int] = None,
         continuation_token: Optional[str] = None,
@@ -473,8 +487,8 @@ class StorageApi(_StorageApi):
     async def upload(
         self,
         file_path: str,
-        bucket: str,
         key: str,
+        bucket: str = "local",
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
         multipart_threshold: int = 64 * 1024 * 1024,  # 64 MiB
@@ -553,8 +567,8 @@ class StorageApi(_StorageApi):
     async def upload_dir(
         self,
         dir_path: str,
-        bucket: str,
         prefix: str = "",
+        bucket: str = "local",
         *,
         concurrency: int = 8,
         include_hidden: bool = True,
@@ -603,7 +617,13 @@ class StorageApi(_StorageApi):
         return uploaded
 
     @sync_compatible
-    async def download(self, bucket: str, key: str, file_path: str, make_dirs: bool = True) -> None:
+    async def download(
+        self,
+        key: str,
+        file_path: str,
+        bucket: str = "local",
+        make_dirs: bool = True,
+    ) -> None:
         """
         Downloads an object to a local file, streaming to disk.
         """
@@ -640,9 +660,9 @@ class StorageApi(_StorageApi):
     @sync_compatible
     async def download_dir(
         self,
-        bucket: str,
         prefix: str,
         dest_dir: str,
+        bucket: str = "local",
         *,
         concurrency: int = 8,
         make_dirs: bool = True,
@@ -685,8 +705,8 @@ class StorageApi(_StorageApi):
 
     def generate_download_url(
         self,
-        bucket: str,
         key: str,
+        bucket: str = "local",
         expires_in: int = 3600,
         response_content_type: Optional[str] = None,
         response_content_disposition: Optional[str] = None,

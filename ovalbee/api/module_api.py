@@ -110,7 +110,7 @@ class ModuleApi(ModuleApiTemplate):
         for item in resp_json:
             yield self._info_class()(**item)
 
-    def _create_bulk(self, items: List[BaseModel]) -> List[Any]:
+    def _create_bulk(self, items: List[BaseModel]) -> List[int]:
         """_create_bulk"""
         data = {}
         space_id = items[0].space_id if items else None  # temporary
@@ -127,7 +127,7 @@ class ModuleApi(ModuleApiTemplate):
         resp_json = resp.json()
         # TODO: update response handling / change API to return full objects
         ids = [item.get("id") for item in resp_json]
-        return [self.get_info_by_id(space_id=space_id, id=item_id) for item_id in ids]
+        return ids
 
 
 class UpdatableModuleApi(ModuleApi):

@@ -21,10 +21,10 @@ class AssetApi(CRUDModuleApi):
     def _create_field_name(self) -> str:
         return "assets"
 
-    def create(self, asset_info: AssetInfo) -> AssetInfo:
+    def create(self, asset_info: AssetInfo) -> int:
         return self._create_bulk([asset_info])[0]
 
-    def create_bulk(self, asset_infos: List[AssetInfo]) -> List[AssetInfo]:
+    def create_bulk(self, asset_infos: List[AssetInfo]) -> List[int]:
         return self._create_bulk(asset_infos)
 
     # --- Retrieval ------------------------------------------------
