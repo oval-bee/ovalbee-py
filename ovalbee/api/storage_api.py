@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import aioboto3
+from aiobotocore.client import AioBaseClient
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
@@ -18,8 +19,10 @@ except ImportError:
 
 import logging
 
+from ovalbee.domain.types.s3 import S3Object
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
 from ovalbee.io.decorators import sync_compatible, sync_compatible_generator
+from ovalbee.io.env import is_development
 
 
 # ----------------------------------- dataclasses -------------------------------------------
@@ -54,36 +57,6 @@ class StorageConfig:
         )
 
 
-@dataclass
-class S3Object:
-    """S3 object metadata"""
-
-    key: str
-    size: int
-    last_modified: datetime
-    etag: str
-    storage_class: Optional[str] = None
-
-    @classmethod
-    def from_s3_response(cls, obj: dict) -> "S3Object":
-        """
-        Create S3Object from S3 API response.
-
-        Args:
-            obj: Dictionary from S3 list_objects_v2 response
-
-        Returns:
-            S3Object instance with parsed metadata
-        """
-        return cls(
-            key=obj["Key"],
-            size=obj["Size"],
-            last_modified=obj["LastModified"],
-            etag=obj["ETag"].strip('"'),
-            storage_class=obj.get("StorageClass"),
-        )
-
-
 # --------------- Bucket Operations ---------------------------------------------
 class BucketOperations:
     """Bucket-related operations."""
@@ -103,7 +76,9 @@ class BucketOperations:
         """Check if bucket exists."""
         await self._api._ensure_connected()
         try:
-            await self._api._client.head_bucket(Bucket=name)
+            return True  # TODO: list buckets is not implemented yet
+            client: AioBaseClient = self._api._client
+            await client.head_bucket(Bucket=name)
             return True
         except ClientError as e:
             if self._is_not_found_error(e):
@@ -273,11 +248,25 @@ class _StorageApi:
 
     def __init__(
         self,
+        api: "Api",
         creds: Optional[MinioCredentials] = None,
         extra_config: Optional[Dict[str, Any]] = None,
+        use_on_premise: bool = True,
     ) -> None:
+        """
+        Initialize StorageApi client.
+        Uses connection caching to reuse clients with the same credentials.
+
+        Args:
+            api: Parent Api instance.
+            creds: MinioCredentials instance; if None, default credentials are used.
+            extra_config: Extra configuration for boto3 Config.
+            use_on_premise: Whether to use on-premise MinIO settings.
+        """
         if self._initialized:
             return
+        self._api = api
+        self._on_premise = use_on_premise
         self._creds = creds or MinioCredentials()
         self._raw_config = StorageConfig()
         self._config = self._raw_config.to_boto3_config(extra=extra_config)
@@ -299,13 +288,6 @@ class _StorageApi:
         return self._client is not None
 
     # --------------- Factory Methods ---------------
-    @classmethod
-    def from_env(cls) -> _StorageApi:
-        """
-        Creates a StorageApi instance using environment variables.
-        """
-        return cls(creds=MinioCredentials())
-
     @classmethod
     def _register_shutdown_hooks(cls) -> None:
         """Register shutdown hooks to close all cached connections."""
@@ -333,7 +315,7 @@ class _StorageApi:
         root_logger.setLevel(level)
 
     # --------------- Connection Management ---------------
-    def __new__(cls, creds: Optional[MinioCredentials] = None, **kwargs) -> _StorageApi:
+    def __new__(cls, api: "Api", creds: Optional[MinioCredentials] = None, **kwargs) -> _StorageApi:
         """Override __new__ to use connection cache."""
         creds = creds or MinioCredentials()
         user = creds.MINIO_ROOT_USER
@@ -362,14 +344,27 @@ class _StorageApi:
         lock = await self._get_lock()
         async with lock:
             current_log_level = logging.getLogger().level
-            _StorageApi._set_logging_levels(logging.WARNING)
             self._creds.validate_credentials()
+            if not self._on_premise:
+                url = _normalize_url(self._creds.MINIO_ROOT_URL)
+                use_ssl = _is_ssl_url(self._creds.MINIO_ROOT_URL)
+                key_id = self._creds.MINIO_ROOT_USER.get_secret_value()
+                secret_key = self._creds.MINIO_ROOT_PASSWORD.get_secret_value()
+            else:
+                server_address = self._api._server_address
+                if is_development():
+                    server_address = "http://localhost:30080"
+                url = _normalize_url(server_address + "/api/s3")
+                use_ssl = False
+                key_id = self._api._token
+                secret_key = ""
+            _StorageApi._set_logging_levels(logging.WARNING)
             self._client_cm = self._session.client(
                 service_name=self._raw_config.service_name,
-                endpoint_url=_normalize_url(self._creds.MINIO_ROOT_URL),
-                aws_access_key_id=self._creds.MINIO_ROOT_USER.get_secret_value(),
-                aws_secret_access_key=self._creds.MINIO_ROOT_PASSWORD.get_secret_value(),
-                use_ssl=_is_ssl_url(self._creds.MINIO_ROOT_URL),
+                endpoint_url=url,
+                aws_access_key_id=key_id,
+                aws_secret_access_key=secret_key,
+                use_ssl=use_ssl,
                 config=self._config,
                 region_name=self._creds.get_region(),
             )
@@ -435,7 +430,7 @@ class StorageApi(_StorageApi):
                 for d in page["CommonPrefixes"]:
                     yield {"Prefix": d.get("Prefix")}
             for obj in page.get("Contents", []):
-                yield S3Object.from_s3_response(obj)
+                yield S3Object(**obj)
 
     @sync_compatible
     async def list_objects(
@@ -471,7 +466,7 @@ class StorageApi(_StorageApi):
         contents = resp.get("Contents")
         if contents is None:
             return []
-        return [S3Object.from_s3_response(obj) for obj in contents]
+        return [S3Object(**obj) for obj in contents]
 
     # --------------- File helpers (local disk <-> S3) ---------------
     @sync_compatible

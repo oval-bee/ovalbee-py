@@ -11,12 +11,16 @@ from typing import Optional
 
 # from ovalbee.api import api  # Existing stub preserved for backwards compatibility.
 from ovalbee.api.api import Api
-from ovalbee.domain.types.asset import AssetInfo
+from ovalbee.domain.types.annotation import (
+    Annotation,
+    AnnotationFormat,
+    AnnotationResource,
+    AnnotationTask,
+)
+from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.collection import CollectionInfo
 from ovalbee.domain.types.file import FileInfo, FileType
 from ovalbee.domain.types.space import SpaceInfo
-from ovalbee.domain.types.asset import AssetType, AssetInfo
-from ovalbee.domain.types.annotation import Annotation, AnnotationFormat, AnnotationResource, AnnotationTask
 
 # from ovalbee.client import ClientConfig, Ovalbee, login
 

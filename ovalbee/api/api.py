@@ -33,5 +33,5 @@ class Api(_Api):
     def storage(self) -> StorageApi:
         """Storage API client."""
         if self._storage_api is None:
-            self._storage_api = StorageApi()
+            self._storage_api = StorageApi(self)
         return self._storage_api

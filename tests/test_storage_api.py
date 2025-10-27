@@ -13,17 +13,31 @@ api = Api(
 
 
 # ovalbee/test
+# BUCKET = "ovalbee"
+# PREFIX = "test"
+
+# local/tests
 BUCKET = "local"
 PREFIX = "tests"
 LOCAL_DIR = "./downloaded_dir"
+
+
+OBJECT_KEY = "local/tests/apple_1.jpg"
+LOCAL_FILE = "./downloaded_dir/apple_1.jpg"
+
+
+def download_file():
+    t = time.perf_counter()
+    api.storage.download(BUCKET, OBJECT_KEY, LOCAL_FILE)
+    print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 
 def test():
     t = time.perf_counter()
     for i in range(3):
         for f in api.storage.list_objects(BUCKET, PREFIX):
-            bytes = api.storage.objects.get_size(BUCKET, f.key)
-            print(f"🟢 bytes: {bytes}")
+            size = api.storage.objects.get_size(BUCKET, f.key)
+            print(f"🟢 size: {size}")
     print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 
@@ -38,4 +52,4 @@ async def async_test():
 
 if __name__ == "__main__":
     test()
-    asyncio.run(async_test())
+    # asyncio.run(async_test())
