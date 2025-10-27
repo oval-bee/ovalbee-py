@@ -12,8 +12,9 @@ api = Api(
 )
 
 
-BUCKET = "test-bucket"
-PREFIX = "tests/1760496115"
+# ovalbee/test
+BUCKET = "local"
+PREFIX = "tests"
 LOCAL_DIR = "./downloaded_dir"
 
 
@@ -22,7 +23,7 @@ def test():
     for i in range(3):
         for f in api.storage.list_objects(BUCKET, PREFIX):
             bytes = api.storage.objects.get_size(BUCKET, f.key)
-            print(bytes)
+            print(f"🟢 bytes: {bytes}")
     print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 

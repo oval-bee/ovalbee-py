@@ -53,12 +53,15 @@ class _Api:
         token: Optional[str] = None,
         retry_count: Optional[int] = 10,
         retry_sleep_sec: Optional[int] = None,
+        use_public_api: Optional[bool] = True,
     ):
         # authorization
         self._token = token
         self._server_address = server_address
         self._api_server_address = None
+        self._use_public_api = use_public_api
         self._headers = {"Authorization": self._token} if self._token else {}
+        self._additional_headers = {}
 
         # logger
         self.logger = logger
@@ -95,6 +98,7 @@ class _Api:
         retries: Optional[int] = None,
         stream: Optional[bool] = False,
         raise_error: Optional[bool] = False,
+        headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
         Performs POST request to server with given parameters.
@@ -117,26 +121,28 @@ class _Api:
 
         url = self._prepare_url(method)
         logger.info(f"POST {url}")
+        if headers is not None:
+            headers = {**self._headers, **self._additional_headers, **headers}
+        else:
+            headers = {**self._headers, **self._additional_headers}
 
         for retry_idx in range(retries):
             response = None
             try:
                 if type(data) is bytes:
-                    response = requests.post(url, data=data, headers=self._headers, stream=stream)
+                    response = requests.post(url, data=data, headers=headers, stream=stream)
                 elif type(data) is MultipartEncoderMonitor or type(data) is MultipartEncoder:
                     response = requests.post(
                         url,
                         data=data,
-                        headers={**self._headers, "Content-Type": data.content_type},
+                        headers={"Content-Type": data.content_type, **headers},
                         stream=stream,
                     )
                 else:
                     json_body = data
                     if type(data) is dict:
                         json_body = {**data, **self._additional_fields}
-                    response = requests.post(
-                        url, json=json_body, headers=self._headers, stream=stream
-                    )
+                    response = requests.post(url, json=json_body, headers=headers, stream=stream)
 
                 if response.status_code != requests.codes.ok:  # pylint: disable=no-member
                     _Api._raise_for_status(response)
@@ -174,6 +180,7 @@ class _Api:
         stream: Optional[bool] = False,
         use_public_api: Optional[bool] = True,
         data: Optional[Dict] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
         Performs GET request to server with given parameters.
@@ -198,6 +205,10 @@ class _Api:
 
         url = self._prepare_url(method, use_public_api=use_public_api)
         logger.info(f"GET {url}")
+        if headers is not None:
+            headers = {**self._headers, **self._additional_headers, **headers}
+        else:
+            headers = {**self._headers, **self._additional_headers}
 
         for retry_idx in range(retries):
             response = None
@@ -206,7 +217,7 @@ class _Api:
                 if type(params) is dict:
                     json_body = {**params, **self._additional_fields}
                 response = requests.get(
-                    url, params=json_body, data=data, headers=self._headers, stream=stream
+                    url, params=json_body, data=data, headers=headers, stream=stream
                 )
 
                 if response.status_code != requests.codes.ok:  # pylint: disable=no-member
@@ -239,6 +250,7 @@ class _Api:
         data: Dict,
         retries: Optional[int] = None,
         use_public_api: Optional[bool] = True,
+        headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
         Performs PUT request to server with given parameters.
@@ -259,6 +271,10 @@ class _Api:
 
         url = self._prepare_url(method, use_public_api=use_public_api)
         logger.info(f"PUT {url}")
+        if headers is not None:
+            headers = {**self._headers, **self._additional_headers, **headers}
+        else:
+            headers = {**self._headers, **self._additional_headers}
 
         for retry_idx in range(retries):
             response = None
@@ -266,7 +282,7 @@ class _Api:
                 json_body = data
                 if type(data) is dict:
                     json_body = {**data, **self._additional_fields}
-                response = requests.put(url, json=json_body, headers=self._headers)
+                response = requests.put(url, json=json_body, headers=headers)
 
                 if response.status_code != requests.codes.ok:  # pylint: disable=no-member
                     _Api._raise_for_status(response)
@@ -292,7 +308,12 @@ class _Api:
             except Exception as exc:
                 process_unhandled_request(self.logger, exc)
 
-    def delete(self, method: str, retries: Optional[int] = None) -> None:
+    def delete(
+        self,
+        method: str,
+        retries: Optional[int] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> None:
         """
         Performs DELETE request to server with given parameters.
 
@@ -306,11 +327,15 @@ class _Api:
 
         url = self._prepare_url(method)
         logger.info(f"DELETE {url}")
+        if headers is not None:
+            headers = {**self._headers, **self._additional_headers, **headers}
+        else:
+            headers = {**self._headers, **self._additional_headers}
 
         for retry_idx in range(retries):
             response = None
             try:
-                response = requests.delete(url, headers=self._headers)
+                response = requests.delete(url, headers=headers)
 
                 if response.status_code != requests.codes.ok:  # pylint: disable=no-member
                     _Api._raise_for_status(response)
@@ -340,7 +365,8 @@ class _Api:
         """
         Prepares the API endpoint URL.
         """
-        url = self.api_server_address
+        prefix = "internal" if not use_public_api else ""
+        url = os.path.join(self.api_server_address, prefix)
         if API_VERSION:
             url = os.path.join(url, API_VERSION)
         url = os.path.join(url, method)
@@ -567,9 +593,9 @@ class _Api:
         logger.info(f"POST {url}")
 
         if headers is None:
-            headers = self._headers.copy()
+            headers = {**self._headers, **self._additional_headers}
         else:
-            headers = {**self._headers, **headers}
+            headers = {**self._headers, **self._additional_headers, **headers}
 
         for retry_idx in range(retries):
             response = None
@@ -621,6 +647,7 @@ class _Api:
         retries: Optional[int] = None,
         use_public_api: Optional[bool] = True,
         timeout: httpx._types.TimeoutTypes = 60,
+        headers: Optional[Dict[str, str]] = None,
     ) -> httpx.Response:
         """
         Performs GET request to server with given parameters.
@@ -645,6 +672,10 @@ class _Api:
 
         url = self._prepare_url(method, use_public_api=use_public_api)
         logger.info(f"GET {url}")
+        if headers is None:
+            headers = {**self._headers, **self._additional_headers}
+        else:
+            headers = {**self._headers, **self._additional_headers, **headers}
 
         if isinstance(params, Dict):
             request_params = {**params, **self._additional_fields}
@@ -657,7 +688,7 @@ class _Api:
                 response = self._httpx_client.get(
                     url,
                     params=request_params,
-                    headers=self._headers,
+                    headers=headers,
                     timeout=timeout,
                 )
                 if response.status_code != httpx.codes.OK:
@@ -735,9 +766,9 @@ class _Api:
         url = self._prepare_url(method, use_public_api=use_public_api)
 
         if headers is None:
-            headers = self._headers.copy()
+            headers = {**self._headers, **self._additional_headers}
         else:
-            headers = {**self._headers, **headers}
+            headers = {**self._headers, **self._additional_headers, **headers}
 
         logger.info(f"{method_type} {url}")
 
@@ -885,9 +916,9 @@ class _Api:
         logger.info(f"POST {url}")
 
         if headers is None:
-            headers = self._headers.copy()
+            headers = {**self._headers, **self._additional_headers}
         else:
-            headers = {**self._headers, **headers}
+            headers = {**self._headers, **self._additional_headers, **headers}
 
         for retry_idx in range(retries):
             response = None
@@ -982,9 +1013,9 @@ class _Api:
         logger.info(f"{method_type} {url}")
 
         if headers is None:
-            headers = self._headers.copy()
+            headers = {**self._headers, **self._additional_headers}
         else:
-            headers = {**self._headers, **headers}
+            headers = {**self._headers, **self._additional_headers, **headers}
 
         params = kwargs.get("params", None)
         if "content" in kwargs or "json_body" in kwargs:

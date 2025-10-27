@@ -20,7 +20,11 @@ class ModuleApiTemplate(ABC):
         self.api_client = api_client
 
     def _endpoint_prefix(self) -> str:
-        pass
+        raise NotImplementedError()
+
+    @property
+    def endpoint(self) -> str:
+        return self._endpoint_prefix()
 
     @staticmethod
     @abstractmethod
@@ -69,7 +73,7 @@ class ModuleApi(ModuleApiTemplate):
 
     def _get_info_by_id(self, space_id, id):
         """_get_info_by_id"""
-        response = self._get_response_by_id(space_id, id, self._endpoint_prefix())
+        response = self._get_response_by_id(space_id, id, self.endpoint)
         return self._info_class()(**response.json()) if response is not None else None
 
     def _get_list_all_pages(
@@ -99,7 +103,7 @@ class ModuleApi(ModuleApiTemplate):
             params["type"] = item_type
         if source_id is not None:
             params["sourceId"] = source_id
-        resp = self._api.get(method=self._endpoint_prefix(), params=params)
+        resp = self._api.get(method=self.endpoint, params=params)
         resp_json = resp.json()
         if "items" in resp_json:
             resp_json = resp_json["items"]
@@ -116,7 +120,7 @@ class ModuleApi(ModuleApiTemplate):
         else:
             data = items
 
-        method = self._endpoint_prefix().rstrip("/")
+        method = self.endpoint.rstrip("/")
         if self._creation_endpoint_name():
             method += f"/{self._creation_endpoint_name()}"
         resp = self._api.post(method, data=data)
@@ -140,7 +144,7 @@ class UpdatableModuleApi(ModuleApi):
         if item.id is None:
             raise ValueError("Item must have an ID for update")
         data = item.model_dump(exclude_unset=True)
-        method = f"{self._endpoint_prefix()}/{item.id}"
+        method = f"{self.endpoint}/{item.id}"
         resp = self._api.put(method, data=data)
         resp_json = resp.json()
         return self._info_class()(**resp_json)
@@ -157,7 +161,7 @@ class DeletableModuleApi(ModuleApi):
 
     def _delete(self, id: int) -> None:
         """_delete"""
-        method = f"{self._endpoint_prefix()}/{id}"
+        method = f"{self.endpoint}/{id}"
         self._api.delete(method)
 
 

@@ -17,9 +17,8 @@ class CollectionApi(CRUDModuleApi):
 
     # --- Creation -------------------------------------------------
     def create(self, collection_info: CollectionInfo) -> CollectionInfo:
-        method = self._endpoint_prefix()
         data = collection_info.model_dump(exclude_unset=True)
-        resp = self._api.post(method, data=data)
+        resp = self._api.post(self.endpoint, data=data)
         resp_json = resp.json()
         collection_id = resp_json.get("id")
         created = self.get_info_by_id(space_id=collection_info.space_id, id=collection_id)
@@ -45,7 +44,7 @@ class CollectionApi(CRUDModuleApi):
 
     # --- Add assets to collection ----------------------------------
     def add_assets(self, collection_id: int, asset_ids: List[int]) -> Optional[List[int]]:
-        method = f"{self._endpoint_prefix()}/{collection_id}/add-assets"
+        method = f"{self.endpoint}/{collection_id}/add-assets"
         data = {"assetIds": asset_ids}
         resp = self._api.post(method, data=data)
         resp_json = resp.json()
@@ -56,7 +55,7 @@ class CollectionApi(CRUDModuleApi):
 
     # --- Remove assets from collection -------------------------------
     def remove_assets(self, collection_id: int, asset_ids: List[int]) -> Optional[List[int]]:
-        method = f"{self._endpoint_prefix()}/{collection_id}/remove-assets"
+        method = f"{self.endpoint}/{collection_id}/remove-assets"
         data = {"assetIds": asset_ids}
         resp = self._api.post(method, data=data)
         resp_json = resp.json()
@@ -67,7 +66,7 @@ class CollectionApi(CRUDModuleApi):
 
     # --- Get assets in collection ------------------------------------
     def get_assets(self, collection_id: int, item_type: Optional[AssetType] = None) -> List[AssetInfo]:
-        method = f"{self._endpoint_prefix()}/{collection_id}/assets"
+        method = f"{self.endpoint}/{collection_id}/assets"
         params = {}
         if item_type:
             params["type"] = item_type.value if isinstance(item_type, AssetType) else item_type

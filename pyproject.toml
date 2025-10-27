@@ -17,7 +17,7 @@ dependencies = [
     "pydantic>=2.12.2",
     "pydantic-settings>=2.11.0",
     "requests_toolbelt",
-    "httpx",
+    "httpx[http2]",
     "types-aiobotocore-s3",
     "aioboto3",
 ]

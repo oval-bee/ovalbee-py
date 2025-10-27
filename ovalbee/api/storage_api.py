@@ -289,7 +289,6 @@ class _StorageApi:
         self.buckets = BucketOperations(self)
         self.objects = ObjectOperations(self)
 
-        _StorageApi._set_logging_levels(logging.WARNING)
         _StorageApi._register_shutdown_hooks()
         _StorageApi._initialized = True
 
@@ -330,20 +329,6 @@ class _StorageApi:
     @classmethod
     def _set_logging_levels(cls, level: int) -> None:
         """Set logging levels for aioboto3 and botocore."""
-        # loggers_to_silence = [
-        #     "aioboto3",
-        #     "botocore",
-        #     "botocore.parsers",
-        #     "botocore.endpoint",
-        #     "botocore.hooks",
-        #     "botocore.credentials",
-        #     "s3transfer",
-        #     "urllib3",
-        #     "urllib3.connectionpool",
-        # ]
-        # for logger_name in loggers_to_silence:
-        #     logger = logging.getLogger(logger_name)
-        #     logger.setLevel(level)
         root_logger = logging.getLogger()
         root_logger.setLevel(level)
 
@@ -376,6 +361,8 @@ class _StorageApi:
             return self
         lock = await self._get_lock()
         async with lock:
+            current_log_level = logging.getLogger().level
+            _StorageApi._set_logging_levels(logging.WARNING)
             self._creds.validate_credentials()
             self._client_cm = self._session.client(
                 service_name=self._raw_config.service_name,
@@ -384,8 +371,10 @@ class _StorageApi:
                 aws_secret_access_key=self._creds.MINIO_ROOT_PASSWORD.get_secret_value(),
                 use_ssl=_is_ssl_url(self._creds.MINIO_ROOT_URL),
                 config=self._config,
+                region_name=self._creds.get_region(),
             )
             self._client = await self._client_cm.__aenter__()  # type: ignore
+            _StorageApi._set_logging_levels(current_log_level)
         return self
 
     async def _close(self) -> None:
@@ -486,7 +475,7 @@ class StorageApi(_StorageApi):
 
     # --------------- File helpers (local disk <-> S3) ---------------
     @sync_compatible
-    async def upload_file(
+    async def upload(
         self,
         file_path: str,
         bucket: str,
@@ -598,7 +587,7 @@ class StorageApi(_StorageApi):
         async def _one(p: Path) -> str:
             key = to_key(p)
             async with sem:
-                await self.upload_file(str(p), bucket=bucket, key=key)
+                await self.upload(str(p), bucket=bucket, key=key)
             return key
 
         tasks: List[asyncio.Task] = []
@@ -619,9 +608,7 @@ class StorageApi(_StorageApi):
         return uploaded
 
     @sync_compatible
-    async def download_file(
-        self, bucket: str, key: str, file_path: str, make_dirs: bool = True
-    ) -> None:
+    async def download(self, bucket: str, key: str, file_path: str, make_dirs: bool = True) -> None:
         """
         Downloads an object to a local file, streaming to disk.
         """
@@ -684,7 +671,7 @@ class StorageApi(_StorageApi):
             rel = key[len(norm_prefix) :].lstrip("/") if norm_prefix else key
             local_path = dest_root / rel
             async with sem:
-                await self.download_file(bucket, key, str(local_path), make_dirs=make_dirs)
+                await self.download(bucket, key, str(local_path), make_dirs=make_dirs)
             return str(local_path)
 
         tasks: List[asyncio.Task] = []
