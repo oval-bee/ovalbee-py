@@ -309,6 +309,7 @@ class _StorageApi:
         from ovalbee.io.decorators import _bg_run
 
         async def _close_connection():
+            global _connection
             if _connection is not None:
                 await _connection._close()
             _connection = None
@@ -329,6 +330,8 @@ class _StorageApi:
     # --------------- Connection Management ---------------
     def __new__(cls, api: "Api", **kwargs) -> _StorageApi:
         """Override __new__ to use connection cache."""
+        global _connection
+
         if _connection is None:
             inst = super().__new__(cls)
             _connection = inst
