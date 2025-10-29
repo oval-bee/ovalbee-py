@@ -4,7 +4,6 @@ import pytest
 
 import ovalbee as ob
 from ovalbee.api.api import Api
-from ovalbee.api.storage_api import S3StorageClient
 
 
 class TestIntegrationWorkflow:
@@ -35,38 +34,26 @@ class TestIntegrationWorkflow:
     def test_constants(self):
         """Test constants fixture."""
         return {
-            "bucket": "test-bucket",
+            "bucket": "local",
             "collection_name": "debug_collection",
             "asset_name": "debug_image",
             "annotation_name": "debug_annotation",
             "space_id": 1,
         }
 
-    def _upload_file(self, local_path: str, bucket: str):
+    def _upload_file(self, api, local_path: str, bucket: str):
         """Helper method to upload files to S3."""
-        semaphore = asyncio.Semaphore(5)
-        s3_client = S3StorageClient(
-            access_key="minioadmin",
-            secret_key="minioadmin",
-            storage_url="http://localhost:9000",
-            semaphore=semaphore,
-        )
         key = local_path.split("/")[-1]
-        asyncio.run(
-            s3_client.upload(
-                bucket=bucket,
-                key=key,
-                file_path=local_path,
-            )
-        )
+        key = f"workspaces/1/{key}"
+        api.storage.upload(bucket=bucket, key=key, file_path=local_path)
 
-    def test_01_upload_files_to_s3(self, test_file_paths, test_constants):
+    def test_01_upload_files_to_s3(self, api, test_file_paths, test_constants):
         """Test uploading image and annotation files to S3."""
         # Upload image file
-        self._upload_file(test_file_paths["image_path"], test_constants["bucket"])
+        self._upload_file(api, test_file_paths["image_path"], test_constants["bucket"])
 
         # Upload annotation file
-        self._upload_file(test_file_paths["annotation_path"], test_constants["bucket"])
+        self._upload_file(api, test_file_paths["annotation_path"], test_constants["bucket"])
 
         # If we reach here without exceptions, uploads were successful
         assert True
@@ -110,7 +97,12 @@ class TestIntegrationWorkflow:
         )
         created_asset = api.asset.create(asset)
 
-        assert created_asset is not None
+        assert isinstance(created_asset, str)
+
+        assert isinstance(created_asset, str)
+        created_asset = api.asset.get_info_by_id(
+            space_id=test_constants["space_id"], id=created_asset
+        )
         assert created_asset.id is not None
         assert created_asset.type == ob.AssetType.IMAGES
 
@@ -132,7 +124,10 @@ class TestIntegrationWorkflow:
         )
         created_annotation = api.annotation.create(annotation)
 
-        assert created_annotation is not None
+        assert isinstance(created_annotation, str)
+        created_annotation = api.annotation.get_info_by_id(
+            space_id=test_constants["space_id"], id=created_annotation
+        )
         assert created_annotation.id is not None
         assert created_annotation.source_id == TestIntegrationWorkflow.asset.id
 

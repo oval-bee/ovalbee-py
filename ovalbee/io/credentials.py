@@ -44,6 +44,7 @@ class MinioCredentials(BaseSettings):
     model_config = SettingsConfigDict(
         env_file="~/ovalbee.env",
         # frozen=True
+        extra="ignore",
     )
 
     def get_region(self) -> Optional[str]:
