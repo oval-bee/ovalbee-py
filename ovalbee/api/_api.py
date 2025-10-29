@@ -539,8 +539,8 @@ class _Api:
             # Output:
             # 'https://app.ovalbee.com/public/api'
         """
-        # return f"{self._server_address}/api"
-        return self._server_address
+        return f"{self._server_address}/api"
+        # return self._server_address
 
     def post_httpx(
         self,

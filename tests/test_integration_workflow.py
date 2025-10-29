@@ -18,7 +18,7 @@ class TestIntegrationWorkflow:
     def api(self):
         """API client fixture."""
         return Api(
-            server_address="http://0.0.0.0:30080",
+            server_address="http://localhost:30080",
             token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
         )
 
@@ -34,7 +34,7 @@ class TestIntegrationWorkflow:
     def test_constants(self):
         """Test constants fixture."""
         return {
-            "bucket": "local",
+            "bucket": "workspace",
             "collection_name": "debug_collection",
             "asset_name": "debug_image",
             "annotation_name": "debug_annotation",
@@ -44,7 +44,6 @@ class TestIntegrationWorkflow:
     def _upload_file(self, api, local_path: str, bucket: str):
         """Helper method to upload files to S3."""
         key = local_path.split("/")[-1]
-        key = f"workspaces/1/{key}"
         api.storage.upload(bucket=bucket, key=key, file_path=local_path)
 
     def test_01_upload_files_to_s3(self, api, test_file_paths, test_constants):
@@ -244,3 +243,7 @@ class TestIntegrationWorkflow:
         assert (
             deleted is None or getattr(deleted, "id", None) != TestIntegrationWorkflow.collection.id
         )
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

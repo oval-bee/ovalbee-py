@@ -17,12 +17,12 @@ api = Api(
 # PREFIX = "test"
 
 # local/tests
-BUCKET = "local"
+BUCKET = "workspace"
 PREFIX = "tests"
 LOCAL_DIR = "./downloaded_dir"
 
 
-OBJECT_KEY = "local/tests/apple_1.jpg"
+OBJECT_KEY = "workspace/tests/apple_1.jpg"
 LOCAL_FILE = "./downloaded_dir/apple_1.jpg"
 
 

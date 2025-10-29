@@ -91,9 +91,8 @@ class BucketOperations:
         await self._api._ensure_connected()
         params = {"Bucket": name}
 
-        region = self._api._creds.get_region()
-        if region and region != self._api._config.default_region:
-            params["CreateBucketConfiguration"] = {"LocationConstraint": region}
+        if self._region and self._region != self._api._config.default_region:
+            params["CreateBucketConfiguration"] = {"LocationConstraint": self._region}
 
         try:
             await self._api._client.create_bucket(**params)
@@ -145,9 +144,9 @@ class ObjectOperations:
     ) -> str:
         """Upload object from bytes."""
         await self._api._ensure_connected()
-        if self._api._on_premise and bucket != "local":
-            logging.warning("On-premise mode: overriding bucket name to 'local'")
-            bucket = "local"
+        if self._api._on_premise and bucket != "workspace":
+            logging.warning("On-premise mode: overriding bucket name to 'workspace'")
+            bucket = "workspace"
         await self._api._ensure_bucket_exists(bucket)
 
         params = {"Bucket": bucket, "Key": key, "Body": body}
@@ -160,9 +159,9 @@ class ObjectOperations:
     async def get_bytes(self, bucket: str, key: str) -> bytes:
         """Download object as bytes."""
         await self._api._ensure_connected()
-        if self._api._on_premise and bucket != "local":
-            logging.warning("On-premise mode: overriding bucket name to 'local'")
-            bucket = "local"
+        if self._api._on_premise and bucket != "workspace":
+            logging.warning("On-premise mode: overriding bucket name to 'workspace'")
+            bucket = "workspace"
         await self._api._ensure_bucket_exists(bucket)
 
         resp = await self._api._client.get_object(Bucket=bucket, Key=key)
@@ -176,9 +175,9 @@ class ObjectOperations:
     async def get_size(self, bucket: str, key: str) -> int:
         """Get size of an object in bytes."""
         await self._api._ensure_connected()
-        if self._api._on_premise and bucket != "local":
-            logging.warning("On-premise mode: overriding bucket name to 'local'")
-            bucket = "local"
+        if self._api._on_premise and bucket != "workspace":
+            logging.warning("On-premise mode: overriding bucket name to 'workspace'")
+            bucket = "workspace"
         await self._api._ensure_bucket_exists(bucket)
 
         resp = await self._api._client.head_object(Bucket=bucket, Key=key)
@@ -190,9 +189,9 @@ class ObjectOperations:
     ) -> AsyncGenerator[bytes, None]:
         """Stream object content in chunks."""
         await self._api._ensure_connected()
-        if self._api._on_premise and bucket != "local":
-            logging.warning("On-premise mode: overriding bucket name to 'local'")
-            bucket = "local"
+        if self._api._on_premise and bucket != "workspace":
+            logging.warning("On-premise mode: overriding bucket name to 'workspace'")
+            bucket = "workspace"
         await self._api._ensure_bucket_exists(bucket)
 
         chunk_size = chunk_size or self._api._config.default_chunk_size
@@ -241,8 +240,8 @@ class ObjectOperations:
     async def delete(self, bucket: str, key: str) -> None:
         """Delete an object."""
         await self._api._ensure_connected()
-        if self._api._on_premise and bucket != "local":
-            raise RuntimeError("Incorrect bucket for on-premise mode; must be 'local'")
+        if self._api._on_premise and bucket != "workspace":
+            raise RuntimeError("Incorrect bucket for on-premise mode; must be 'workspace'")
         await self._api._ensure_bucket_exists(bucket)
         await self._api._client.delete_object(Bucket=bucket, Key=key)
 
@@ -251,6 +250,7 @@ class ObjectOperations:
 # --------------- Internal StorageApi Class ----------------------------------------
 # ----------------------------------------------------------------------------------
 _connection_cache: Dict[str, _StorageApi] = {}
+_connection = None
 
 
 class _StorageApi:
@@ -263,7 +263,6 @@ class _StorageApi:
     def __init__(
         self,
         api: "Api",
-        creds: Optional[MinioCredentials] = None,
         extra_config: Optional[Dict[str, Any]] = None,
         use_on_premise: bool = True,
     ) -> None:
@@ -273,7 +272,6 @@ class _StorageApi:
 
         Args:
             api: Parent Api instance.
-            creds: MinioCredentials instance; if None, default credentials are used.
             extra_config: Extra configuration for boto3 Config.
             use_on_premise: Whether to use on-premise MinIO settings.
         """
@@ -281,13 +279,13 @@ class _StorageApi:
             return
         self._api = api
         self._on_premise = use_on_premise
-        self._creds = creds or MinioCredentials()
         self._raw_config = StorageConfig()
         self._config = self._raw_config.to_boto3_config(extra=extra_config)
         self._session = aioboto3.Session()
         self._client_cm = None
         self._client = None  # type: ignore
         self._asyncio_lock = None
+        self._region = None
 
         self.buckets = BucketOperations(self)
         self.objects = ObjectOperations(self)
@@ -310,17 +308,17 @@ class _StorageApi:
 
         from ovalbee.io.decorators import _bg_run
 
-        async def _close_all_connections():
-            for instance in list(_connection_cache.values()):
-                await instance._close()
-            _connection_cache.clear()
+        async def _close_connection():
+            if _connection is not None:
+                await _connection._close()
+            _connection = None
 
-        def _sync_close_all_connections(*args, **kwargs):
-            _bg_run(_close_all_connections())
+        def _sync_close_connection(*args, **kwargs):
+            _bg_run(_close_connection())
 
-        signal.signal(signal.SIGINT, _sync_close_all_connections)
-        signal.signal(signal.SIGTERM, _sync_close_all_connections)
-        atexit.register(_sync_close_all_connections)
+        signal.signal(signal.SIGINT, _sync_close_connection)
+        signal.signal(signal.SIGTERM, _sync_close_connection)
+        atexit.register(_sync_close_connection)
 
     @classmethod
     def _set_logging_levels(cls, level: int) -> None:
@@ -329,20 +327,13 @@ class _StorageApi:
         root_logger.setLevel(level)
 
     # --------------- Connection Management ---------------
-    def __new__(cls, api: "Api", creds: Optional[MinioCredentials] = None, **kwargs) -> _StorageApi:
+    def __new__(cls, api: "Api", **kwargs) -> _StorageApi:
         """Override __new__ to use connection cache."""
-        creds = creds or MinioCredentials()
-        user = creds.MINIO_ROOT_USER
-        url = creds.MINIO_ROOT_URL
-        cache_key = f"{url}|{user}"
-
-        inst = _connection_cache.get(cache_key)
-        if inst is None:
+        if _connection is None:
             inst = super().__new__(cls)
-            inst._cache_key = cache_key  # type: ignore[attr-defined]
-            _connection_cache[cache_key] = inst
+            _connection = inst
         else:
-            setattr(inst, "_cache_key", cache_key)
+            inst = _connection
         return inst
 
     async def _get_lock(self) -> asyncio.Lock:
@@ -358,12 +349,14 @@ class _StorageApi:
         lock = await self._get_lock()
         async with lock:
             current_log_level = logging.getLogger().level
-            self._creds.validate_credentials()
             if not self._on_premise:
-                url = _normalize_url(self._creds.MINIO_ROOT_URL)
-                use_ssl = _is_ssl_url(self._creds.MINIO_ROOT_URL)
-                key_id = self._creds.MINIO_ROOT_USER.get_secret_value()
-                secret_key = self._creds.MINIO_ROOT_PASSWORD.get_secret_value()
+                creds = MinioCredentials()
+                creds.validate_credentials()
+                url = _normalize_url(creds.MINIO_ROOT_URL)
+                use_ssl = _is_ssl_url(creds.MINIO_ROOT_URL)
+                key_id = creds.MINIO_ROOT_USER.get_secret_value()
+                secret_key = creds.MINIO_ROOT_PASSWORD.get_secret_value()
+                self._region = creds.get_region()
             else:
                 server_address = self._api._server_address
                 if is_development():
@@ -372,6 +365,7 @@ class _StorageApi:
                 use_ssl = False
                 key_id = self._api._token
                 secret_key = ""
+                self._region = "us-east-1"
             _StorageApi._set_logging_levels(logging.WARNING)
             self._client_cm = self._session.client(
                 service_name=self._raw_config.service_name,
@@ -380,7 +374,7 @@ class _StorageApi:
                 aws_secret_access_key=secret_key,
                 use_ssl=use_ssl,
                 config=self._config,
-                region_name=self._creds.get_region(),
+                region_name=self._region,
             )
             self._client = await self._client_cm.__aenter__()  # type: ignore
             _StorageApi._set_logging_levels(current_log_level)
@@ -417,7 +411,7 @@ class StorageApi(_StorageApi):
     async def iter_objects(
         self,
         prefix: str = "",
-        bucket: str = "local",
+        bucket: str = "workspace",
         delimiter: Optional[str] = None,
         page_size: Optional[int] = None,
         max_keys: Optional[int] = None,
@@ -450,7 +444,7 @@ class StorageApi(_StorageApi):
     async def list_objects(
         self,
         prefix: str = "",
-        bucket: str = "local",
+        bucket: str = "workspace",
         delimiter: Optional[str] = None,
         max_keys: Optional[int] = None,
         continuation_token: Optional[str] = None,
@@ -488,7 +482,7 @@ class StorageApi(_StorageApi):
         self,
         file_path: str,
         key: str,
-        bucket: str = "local",
+        bucket: str = "workspace",
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
         multipart_threshold: int = 64 * 1024 * 1024,  # 64 MiB
@@ -568,7 +562,7 @@ class StorageApi(_StorageApi):
         self,
         dir_path: str,
         prefix: str = "",
-        bucket: str = "local",
+        bucket: str = "workspace",
         *,
         concurrency: int = 8,
         include_hidden: bool = True,
@@ -621,7 +615,7 @@ class StorageApi(_StorageApi):
         self,
         key: str,
         file_path: str,
-        bucket: str = "local",
+        bucket: str = "workspace",
         make_dirs: bool = True,
     ) -> None:
         """
@@ -662,7 +656,7 @@ class StorageApi(_StorageApi):
         self,
         prefix: str,
         dest_dir: str,
-        bucket: str = "local",
+        bucket: str = "workspace",
         *,
         concurrency: int = 8,
         make_dirs: bool = True,
@@ -706,7 +700,7 @@ class StorageApi(_StorageApi):
     def generate_download_url(
         self,
         key: str,
-        bucket: str = "local",
+        bucket: str = "workspace",
         expires_in: int = 3600,
         response_content_type: Optional[str] = None,
         response_content_disposition: Optional[str] = None,
