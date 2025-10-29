@@ -26,19 +26,19 @@ class ModuleApiTemplate(ABC):
     def endpoint(self) -> str:
         return self._endpoint_prefix()
 
-    @staticmethod
-    @abstractmethod
-    def _info_class():
-        pass
+
+class ModuleApi(ModuleApiTemplate):
+
+    def __init__(self, api: "Api"):
+        self._api = api
+
+
+class CreateableModuleApi(ModuleApi):
 
     def _creation_endpoint_name(self) -> str:
         pass
 
     def _create_field_name(self) -> str:
-        pass
-
-    @abstractmethod
-    def get_list(self) -> List[Any]:
         pass
 
     @abstractmethod
@@ -49,15 +49,40 @@ class ModuleApiTemplate(ABC):
     def create_bulk(self, items: List[Any]) -> List[Any]:
         pass
 
+    def _create_bulk(self, items: List[BaseModel]) -> List[int]:
+        """_create_bulk"""
+        data = {}
+        space_id = items[0].space_id if items else None  # temporary
+        items = [item.model_dump() for item in items]
+        if self._create_field_name():
+            data[self._create_field_name()] = items
+        else:
+            data = items
+
+        method = self.endpoint.rstrip("/")
+        if self._creation_endpoint_name():
+            method += f"/{self._creation_endpoint_name()}"
+        resp = self._api.post(method, data=data)
+        resp_json = resp.json()
+        # TODO: update response handling / change API to return full objects
+        ids = [item.get("id") for item in resp_json]
+        return ids
+
+
+class RetrievableModuleApi(ModuleApi):
+
+    @staticmethod
     @abstractmethod
-    def get_info_by_id(self, space_id: int, id: int) -> Optional[Any]:
+    def _info_class():
         pass
 
+    @abstractmethod
+    def get_info_by_id(self, space_id: int, id: int) -> Any:
+        pass
 
-class ModuleApi(ModuleApiTemplate):
-
-    def __init__(self, api: "Api"):
-        self._api = api
+    @abstractmethod
+    def get_list(self, space_id: int, item_type: Optional[str] = None) -> List[Any]:
+        pass
 
     def _get_response_by_id(self, space_id, id, method):
         """_get_response_by_id"""
@@ -110,25 +135,6 @@ class ModuleApi(ModuleApiTemplate):
         for item in resp_json:
             yield self._info_class()(**item)
 
-    def _create_bulk(self, items: List[BaseModel]) -> List[int]:
-        """_create_bulk"""
-        data = {}
-        space_id = items[0].space_id if items else None  # temporary
-        items = [item.model_dump() for item in items]
-        if self._create_field_name():
-            data[self._create_field_name()] = items
-        else:
-            data = items
-
-        method = self.endpoint.rstrip("/")
-        if self._creation_endpoint_name():
-            method += f"/{self._creation_endpoint_name()}"
-        resp = self._api.post(method, data=data)
-        resp_json = resp.json()
-        # TODO: update response handling / change API to return full objects
-        ids = [item.get("id") for item in resp_json]
-        return ids
-
 
 class UpdatableModuleApi(ModuleApi):
 
@@ -165,5 +171,10 @@ class DeletableModuleApi(ModuleApi):
         self._api.delete(method)
 
 
-class CRUDModuleApi(UpdatableModuleApi, DeletableModuleApi):
+class CRUDModuleApi(
+    CreateableModuleApi,
+    RetrievableModuleApi,
+    UpdatableModuleApi,
+    DeletableModuleApi,
+):
     pass

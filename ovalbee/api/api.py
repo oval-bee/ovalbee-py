@@ -5,6 +5,7 @@ from ovalbee.api.annotation_api import AnnotationApi
 from ovalbee.api.asset_api import AssetApi
 from ovalbee.api.collection_api import CollectionApi
 from ovalbee.api.storage_api import StorageApi
+from ovalbee.api.task_api import TaskApi
 
 
 class Api(_Api):
@@ -27,6 +28,7 @@ class Api(_Api):
         self.annotation = AnnotationApi(self)
         self.asset = AssetApi(self)
         self.collection = CollectionApi(self)
+        self.task = TaskApi(self)
 
 
     @property
