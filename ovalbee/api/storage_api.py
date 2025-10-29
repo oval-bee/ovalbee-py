@@ -361,10 +361,10 @@ class _StorageApi:
                 secret_key = creds.MINIO_ROOT_PASSWORD.get_secret_value()
                 self._region = creds.get_region()
             else:
-                server_address = self._api._server_address
-                if is_development():
-                    server_address = "http://localhost:30080"
-                url = _normalize_url(server_address + "/api/s3")
+                server_address = self._api.api_server_address
+                # if is_development():
+                #     server_address = "http://localhost:30080"
+                url = _normalize_url(server_address + "/s3")
                 use_ssl = False
                 key_id = self._api._token
                 secret_key = ""
