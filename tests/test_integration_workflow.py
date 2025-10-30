@@ -18,7 +18,7 @@ class TestIntegrationWorkflow:
     def api(self):
         """API client fixture."""
         return Api(
-            server_address="http://localhost:30080/api",
+            server_address="http://localhost:30080",
             token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
         )
 

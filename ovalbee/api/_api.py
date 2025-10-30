@@ -31,8 +31,6 @@ from ovalbee.io.network_exceptions import (
     process_unhandled_request,
 )
 
-SERVER_ADDRESS = "SERVER_ADDRESS"
-API_TOKEN = "API_TOKEN"
 API_VERSION = None  # "v1"
 OVALBEE_ENV_FILE = os.path.join(Path.home(), "ovalbee.env")
 
@@ -53,12 +51,14 @@ class _Api:
         token: Optional[str] = None,
         retry_count: Optional[int] = 10,
         retry_sleep_sec: Optional[int] = None,
+        external_client: Optional[bool] = True,  # True for external usage, False to use in ovalbee nodes
     ):
         # authorization
         self._token = token
         self._server_address = server_address
         self._headers = {"Authorization": self._token} if self._token else {}
         self._additional_headers = {}
+        self._external_client = external_client
 
         # logger
         self.logger = logger
@@ -175,7 +175,6 @@ class _Api:
         params: Dict,
         retries: Optional[int] = None,
         stream: Optional[bool] = False,
-        use_public_api: Optional[bool] = True,
         data: Optional[Dict] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
@@ -190,8 +189,6 @@ class _Api:
         :type retries: int, optional
         :param stream: Define, if you'd like to get the raw socket response from the server.
         :type stream: bool, optional
-        :param use_public_api:
-        :type use_public_api: bool, optional
         :param data: Dictionary to send in the body of the :class:`Request`.
         :type data: dict, optional
         :return: Response object
@@ -200,7 +197,7 @@ class _Api:
         if retries is None:
             retries = self._retry_count
 
-        url = self._prepare_url(method, use_public_api=use_public_api)
+        url = self._prepare_url(method)
         logger.info(f"GET {url}")
         if headers is not None:
             headers = {**self._headers, **self._additional_headers, **headers}
@@ -246,7 +243,6 @@ class _Api:
         method: str,
         data: Dict,
         retries: Optional[int] = None,
-        use_public_api: Optional[bool] = True,
         headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
@@ -258,15 +254,13 @@ class _Api:
         :type data: dict
         :param retries: The number of attempts to connect to the server.
         :type retries: int, optional
-        :param use_public_api:
-        :type use_public_api: bool, optional
         :return: Response object
         :rtype: :class:`Response<Response>`
         """
         if retries is None:
             retries = self._retry_count
 
-        url = self._prepare_url(method, use_public_api=use_public_api)
+        url = self._prepare_url(method)
         logger.info(f"PUT {url}")
         if headers is not None:
             headers = {**self._headers, **self._additional_headers, **headers}
@@ -358,13 +352,11 @@ class _Api:
             except Exception as exc:
                 process_unhandled_request(self.logger, exc)
 
-    def _prepare_url(self, method: str, use_public_api: bool = True) -> str:
+    def _prepare_url(self, method: str) -> str:
         """
         Prepares the API endpoint URL.
         """
         url = self.api_server_address
-        if not use_public_api:
-            url = os.path.join(url, "internal")
 
         if API_VERSION:
             url = os.path.join(url, API_VERSION)
@@ -539,8 +531,9 @@ class _Api:
             # Output:
             # 'https://app.ovalbee.com/public/api'
         """
-        # return f"{self._server_address}/api"
-        return self._server_address
+        if not self._external_client:
+            return self._server_address
+        return f"{self._server_address}/api"
 
     def post_httpx(
         self,
@@ -639,7 +632,6 @@ class _Api:
         method: str,
         params: httpx._types.QueryParamTypes,
         retries: Optional[int] = None,
-        use_public_api: Optional[bool] = True,
         timeout: httpx._types.TimeoutTypes = 60,
         headers: Optional[Dict[str, str]] = None,
     ) -> httpx.Response:
@@ -652,8 +644,6 @@ class _Api:
         :type params: httpx._types.QueryParamTypes
         :param retries: The number of attempts to connect to the server.
         :type retries: int, optional
-        :param use_public_api: Define if public API should be used. Default is True.
-        :type use_public_api: bool, optional
         :param timeout: Overall timeout for the request.
         :type timeout: float, optional
         :return: Response object
@@ -664,7 +654,7 @@ class _Api:
         if retries is None:
             retries = self._retry_count
 
-        url = self._prepare_url(method, use_public_api=use_public_api)
+        url = self._prepare_url(method)
         logger.info(f"GET {url}")
         if headers is None:
             headers = {**self._headers, **self._additional_headers}
@@ -720,7 +710,6 @@ class _Api:
         range_end: Optional[int] = None,
         raise_error: Optional[bool] = False,
         chunk_size: int = 8192,
-        use_public_api: Optional[bool] = True,
         timeout: httpx._types.TimeoutTypes = 60,
     ) -> Generator:
         """
@@ -745,8 +734,6 @@ class _Api:
         :type raise_error: bool, optional
         :param chunk_size: Size of the chunks to stream.
         :type chunk_size: int, optional
-        :param use_public_api: Define if public API should be used.
-        :type use_public_api: bool, optional
         :param timeout: Overall timeout for the request.
         :type timeout: float, optional
         :return: Generator object.
@@ -757,7 +744,7 @@ class _Api:
         if retries is None:
             retries = self._retry_count
 
-        url = self._prepare_url(method, use_public_api=use_public_api)
+        url = self._prepare_url(method)
 
         if headers is None:
             headers = {**self._headers, **self._additional_headers}
@@ -967,7 +954,6 @@ class _Api:
         range_start: Optional[int] = None,
         range_end: Optional[int] = None,
         chunk_size: int = 8192,
-        use_public_api: Optional[bool] = True,
         timeout: httpx._types.TimeoutTypes = 60,
         **kwargs,
     ) -> AsyncGenerator:
@@ -991,8 +977,6 @@ class _Api:
         :type range_end: int, optional
         :param chunk_size: Size of the chunk to read from the stream. Default is 8192.
         :type chunk_size: int, optional
-        :param use_public_api: Define if public API should be used.
-        :type use_public_api: bool, optional
         :param timeout: Overall timeout for the request.
         :type timeout: float, optional
         :return: Async generator object.
@@ -1003,7 +987,7 @@ class _Api:
         if retries is None:
             retries = self._retry_count
 
-        url = self._prepare_url(method, use_public_api=use_public_api)
+        url = self._prepare_url(method)
         logger.info(f"{method_type} {url}")
 
         if headers is None:

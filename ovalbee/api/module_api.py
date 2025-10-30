@@ -1,9 +1,12 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Generator, List, Optional, Union
+from typing import Any, AsyncGenerator, Generator, List, Optional, Union, TYPE_CHECKING
 
 import requests
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from ovalbee.api.api import Api
 
 
 def _get_single_item(items):

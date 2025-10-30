@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 import aioboto3
 from aiobotocore.client import AioBaseClient
@@ -23,6 +23,9 @@ from ovalbee.domain.types.s3 import S3Object
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
 from ovalbee.io.decorators import sync_compatible, sync_compatible_generator
 from ovalbee.io.env import is_development
+
+if TYPE_CHECKING:
+    from ovalbee.api.api import Api
 
 
 # ----------------------------------- dataclasses -------------------------------------------
@@ -262,7 +265,7 @@ class _StorageApi:
 
     def __init__(
         self,
-        api: "Api",
+        api: Api,
         extra_config: Optional[Dict[str, Any]] = None,
         use_on_premise: bool = True,
     ) -> None:
@@ -328,7 +331,7 @@ class _StorageApi:
         root_logger.setLevel(level)
 
     # --------------- Connection Management ---------------
-    def __new__(cls, api: "Api", **kwargs) -> _StorageApi:
+    def __new__(cls, api: Api, **kwargs) -> _StorageApi:
         """Override __new__ to use connection cache."""
         global _connection
 
