@@ -13,7 +13,7 @@ class YOLOTaskType:
     POSE = "pose"
 
 
-def rectangle_to_yolo_line(
+def sly_rectangle_to_yolo_line(
     class_idx: int,
     geometry: sly.Rectangle,
     img_height: int,
@@ -26,7 +26,7 @@ def rectangle_to_yolo_line(
     return f"{class_idx} {x:.6f} {y:.6f} {w:.6f} {h:.6f}"
 
 
-def polygon_to_yolo_line(
+def sly_polygon_to_yolo_line(
     class_idx: int,
     geometry: sly.Polygon,
     img_height: int,
@@ -40,7 +40,7 @@ def polygon_to_yolo_line(
     return f"{class_idx} {' '.join(map(lambda coord: f'{coord:.6f}', coords))}"
 
 
-def keypoints_to_yolo_line(
+def sly_keypoints_to_yolo_line(
     class_idx: int,
     geometry: sly.GraphNodes,
     img_height: int,
@@ -66,7 +66,7 @@ def keypoints_to_yolo_line(
     return line
 
 
-def convert_label_geometry_if_needed(
+def convert_sly_geometry_if_needed(
     label: sly.Label,
     task_type: Literal["detect", "segment", "pose"],
     verbose: bool = False,
@@ -110,7 +110,7 @@ def convert_label_geometry_if_needed(
     return []
 
 
-def label_to_yolo_lines(
+def sly_label_to_yolo_lines(
     label: sly.Label,
     img_height: int,
     img_width: int,
@@ -121,20 +121,20 @@ def label_to_yolo_lines(
     Convert the Supervisely Label to a line in the YOLO format.
     """
 
-    labels = convert_label_geometry_if_needed(label, task_type)
+    labels = convert_sly_geometry_if_needed(label, task_type)
     class_idx = class_names.index(label.obj_class.name)
 
     lines = []
     for label in labels:
         if task_type == YOLOTaskType.DETECT:
-            yolo_line = rectangle_to_yolo_line(
+            yolo_line = sly_rectangle_to_yolo_line(
                 class_idx=class_idx,
                 geometry=label.geometry,
                 img_height=img_height,
                 img_width=img_width,
             )
         elif task_type == YOLOTaskType.SEGMENT:
-            yolo_line = polygon_to_yolo_line(
+            yolo_line = sly_polygon_to_yolo_line(
                 class_idx=class_idx,
                 geometry=label.geometry,
                 img_height=img_height,
@@ -143,7 +143,7 @@ def label_to_yolo_lines(
         elif task_type == YOLOTaskType.POSE:
             nodes_field = label.obj_class.geometry_type.items_json_field
             max_kpts_count = len(label.obj_class.geometry_config[nodes_field])
-            yolo_line = keypoints_to_yolo_line(
+            yolo_line = sly_keypoints_to_yolo_line(
                 class_idx=class_idx,
                 geometry=label.geometry,
                 img_height=img_height,
@@ -173,7 +173,7 @@ def sly_ann_to_yolo(
     h, w = ann.img_size
     yolo_lines = []
     for label in ann.labels:
-        lines = label_to_yolo_lines(
+        lines = sly_label_to_yolo_lines(
             label=label,
             img_height=h,
             img_width=w,
