@@ -16,12 +16,14 @@ class Api(_Api):
         token: Optional[str] = None,
         retry_count: Optional[int] = 10,
         retry_sleep_sec: Optional[int] = None,
+        external_client: Optional[bool] = True,
     ):
         super().__init__(
             server_address=server_address,
             token=token,
             retry_count=retry_count,
             retry_sleep_sec=retry_sleep_sec,
+            external_client=external_client,
         )
 
         self._storage_api = None
