@@ -22,3 +22,4 @@ class BaseInfo(BaseModel):
         serialize_by_alias=True,
         use_enum_values=True,
     )
+#test
