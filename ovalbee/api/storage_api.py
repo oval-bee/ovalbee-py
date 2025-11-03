@@ -306,23 +306,26 @@ class _StorageApi:
     @classmethod
     def _register_shutdown_hooks(cls) -> None:
         """Register shutdown hooks to close all cached connections."""
-        import atexit
-        import signal
+        try:
+            import atexit
+            import signal
 
-        from ovalbee.io.decorators import _bg_run
+            from ovalbee.io.decorators import _bg_run
 
-        async def _close_connection():
-            global _connection
-            if _connection is not None:
-                await _connection._close()
-            _connection = None
+            async def _close_connection():
+                global _connection
+                if _connection is not None:
+                    await _connection._close()
+                _connection = None
 
-        def _sync_close_connection(*args, **kwargs):
-            _bg_run(_close_connection())
+            def _sync_close_connection(*args, **kwargs):
+                _bg_run(_close_connection())
 
-        signal.signal(signal.SIGINT, _sync_close_connection)
-        signal.signal(signal.SIGTERM, _sync_close_connection)
-        atexit.register(_sync_close_connection)
+            signal.signal(signal.SIGINT, _sync_close_connection)
+            signal.signal(signal.SIGTERM, _sync_close_connection)
+            atexit.register(_sync_close_connection)
+        except Exception:
+            pass
 
     @classmethod
     def _set_logging_levels(cls, level: int) -> None:
