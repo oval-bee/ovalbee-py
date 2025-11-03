@@ -72,3 +72,20 @@ class Annotation(BaseInfo):
         if v is None or len(v) == 0:
             raise ValueError("At least one resource must be provided for an asset.")
         return v
+
+    def clone(
+        self,
+        *,
+        id: Optional[str] = None,
+        space_id: Optional[int] = None,
+        type: Optional[AssetType] = None,
+        resources: Optional[List[AnnotationResource]] = None,
+        source_id: Optional[str] = None,
+    ) -> "Annotation":
+        return Annotation(
+            id=None,  # ? reset id on clone
+            space_id=space_id if space_id is not None else self.space_id,
+            type=type if type is not None else self.type,
+            resources=resources if resources is not None else self.resources.copy(),
+            source_id=source_id if source_id is not None else self.source_id,
+        )

@@ -188,7 +188,7 @@ def read_sly_file(file_path: str, meta: Union[Dict, sly.ProjectMeta]) -> sly.Ann
     """Read Supervisely annotation from a JSON file."""
     if isinstance(meta, dict):
         meta = sly.ProjectMeta.from_json(meta)
-    ann_json = sly.json.load_json_file(file_path)
+    ann_json = sly.json.load_json_file(str(file_path))
     ann = sly.Annotation.from_json(ann_json, project_meta=meta)
     return ann
 

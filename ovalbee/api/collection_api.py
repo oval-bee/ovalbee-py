@@ -73,6 +73,10 @@ class CollectionApi(CRUDModuleApi):
             params["type"] = item_type.value if isinstance(item_type, AssetType) else item_type
         resp = self._api.get(method, params=params)
         resp_json = resp.json()
-        if item_type == AssetType.ANNOTATIONS:
-            return [Annotation(**asset) for asset in resp_json["items"]]
-        return [AssetInfo(**asset) for asset in resp_json["items"]]
+        res = []
+        for item in resp_json["items"]:
+            if item.get("type") == AssetType.ANNOTATIONS.value:
+                res.append(Annotation(**item))
+            else:
+                res.append(AssetInfo(**item))
+        return res
