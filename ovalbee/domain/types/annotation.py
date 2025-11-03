@@ -1,7 +1,7 @@
 import enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_serializer, field_validator
 
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
@@ -22,14 +22,15 @@ class AnnotationResource(FileInfo):
 
     format: Optional[AnnotationFormat] = None
 
-    # auto-set format in metadata when dumping
-    def model_dump(self, *args: Any, **kwargs: Any):
-        data = super().model_dump(*args, **kwargs)
+    @field_serializer("metadata")
+    def serialize_metadata(self, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Auto-set format in metadata when serializing"""
+        if v is None:
+            v = {}
         if self.format is not None:
-            if "metadata" not in data or data["metadata"] is None:
-                data["metadata"] = {}
-            data["metadata"]["format"] = self.format.value
-        return data
+            value = self.format.value if isinstance(self.format, AnnotationFormat) else self.format
+            v["format"] = value
+        return v
 
     # auto-get format from metadata when loading
     @classmethod
