@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
 import aioboto3
 from aiobotocore.client import AioBaseClient
@@ -574,12 +574,21 @@ class StorageApi(_StorageApi):
         bucket: str = "workspace",
         *,
         concurrency: int = 8,
-        include_hidden: bool = True,
+        include_hidden: bool = False,
         follow_symlinks: bool = False,
     ) -> List[str]:
         """
         Uploads all files under 'dir_path' into bucket/prefix.
         Returns list of uploaded S3 keys.
+        Args:
+            dir_path: Local directory path to upload.
+            prefix: S3 key prefix under which to upload files.
+            bucket: Target S3 bucket name.
+            concurrency: Number of concurrent uploads.
+            include_hidden: Whether to include hidden files and directories.
+            follow_symlinks: Whether to follow symlinks.
+        Returns:
+            List of uploaded S3 keys.
         """
         await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
