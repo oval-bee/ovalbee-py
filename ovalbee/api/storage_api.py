@@ -582,7 +582,7 @@ class StorageApi(_StorageApi):
         Returns list of uploaded S3 keys.
         """
         await self._ensure_connected()
-        await self.ensure_bucket(bucket)
+        await self._ensure_bucket_exists(bucket)
         root = Path(dir_path).expanduser().resolve()
         if not root.is_dir():
             raise ValueError(f"Not a directory: {dir_path}")
