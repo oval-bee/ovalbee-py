@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.asset import AssetInfo, AssetType
+from ovalbee.domain.types.annotation import Annotation
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.collection import CollectionInfo
 
@@ -65,11 +66,13 @@ class CollectionApi(CRUDModuleApi):
             raise Exception("Failed to remove assets from collection")
 
     # --- Get assets in collection ------------------------------------
-    def get_assets(self, collection_id: int, item_type: Optional[AssetType] = None) -> List[AssetInfo]:
+    def get_assets(self, collection_id: int, item_type: Optional[AssetType] = None) -> List[AssetInfo | Annotation]:
         method = f"{self.endpoint}/{collection_id}/assets"
         params = {}
         if item_type:
             params["type"] = item_type.value if isinstance(item_type, AssetType) else item_type
         resp = self._api.get(method, params=params)
         resp_json = resp.json()
+        if item_type == AssetType.ANNOTATIONS:
+            return [Annotation(**asset) for asset in resp_json["items"]]
         return [AssetInfo(**asset) for asset in resp_json["items"]]

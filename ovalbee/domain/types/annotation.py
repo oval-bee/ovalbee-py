@@ -1,7 +1,7 @@
 import enum
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
-from pydantic import Field, field_serializer, field_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
@@ -32,14 +32,14 @@ class AnnotationResource(FileInfo):
             v["format"] = value
         return v
 
-    # auto-get format from metadata when loading
-    @classmethod
-    def model_validate(cls, data: Dict[str, Any]) -> "AnnotationResource":
-        if "metadata" in data and data["metadata"] is not None:
-            format_value = data["metadata"].get("format")
-            if format_value is not None:
-                data["format"] = AnnotationFormat(format_value)
-        return super().model_validate(data)
+    @model_validator(mode="before")
+    def extract_format_from_metadata(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Get format from metadata when loading the model"""
+        metadata = values.get("metadata", {})
+        format_value = metadata.get("format")
+        if format_value is not None:
+            values["format"] = format_value
+        return values
 
 
 class AnnotationTask(str, enum.Enum):
