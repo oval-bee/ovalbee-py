@@ -22,10 +22,10 @@ class AnnotationApi(CRUDModuleApi):
     def _create_field_name(self) -> str:
         return "assets"
 
-    def create(self, asset_info: Annotation) -> Annotation:
+    def create(self, asset_info: Annotation) -> int:
         return self._create_bulk([asset_info])[0]
 
-    def create_bulk(self, asset_infos: List[Annotation]) -> List[Annotation]:
+    def create_bulk(self, asset_infos: List[Annotation]) -> List[int]:
         return self._create_bulk(asset_infos)
 
     # --- Retrieval ------------------------------------------------

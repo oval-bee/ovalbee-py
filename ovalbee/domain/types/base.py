@@ -17,7 +17,7 @@ class BaseInfo(BaseModel):
 
     model_config = ConfigDict(
         populate_by_name=True,
-        frozen=True,
+        # frozen=True,
         alias_generator=_snake_to_camel,
         serialize_by_alias=True,
         use_enum_values=True,
