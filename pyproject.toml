@@ -2,6 +2,10 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["ovalbee*"]
+exclude = ["supervisely*", "tests*", "examples*", "docs*"]
+
 [project]
 name = "ovalbee"
 version = "0.0.2"

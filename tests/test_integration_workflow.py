@@ -41,7 +41,7 @@ class TestIntegrationWorkflow:
             "space_id": 1,
         }
 
-    def _upload_file(self, api, local_path: str, bucket: str):
+    def _upload_file(self, api: ob.Api, local_path: str, bucket: str):
         """Helper method to upload files to S3."""
         key = local_path.split("/")[-1]
         api.storage.upload(bucket=bucket, key=key, file_path=local_path)
