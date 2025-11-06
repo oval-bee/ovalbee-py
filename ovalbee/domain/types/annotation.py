@@ -1,4 +1,5 @@
 import enum
+import tempfile
 from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import Field, field_serializer, field_validator, model_validator
@@ -40,6 +41,9 @@ class AnnotationResource(FileInfo):
         if format_value is not None:
             values["format"] = format_value
         return values
+
+    def download(self, api):
+        pass
 
 
 class AnnotationTask(str, enum.Enum):
@@ -89,3 +93,66 @@ class Annotation(BaseInfo):
             resources=resources if resources is not None else self.resources.copy(),
             source_id=source_id if source_id is not None else self.source_id,
         )
+
+    def convert(self, to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
+        """Convert annotation to specific format and return paths to files"""
+        # TODO: Maybe a separate class?
+        from ovalbee.annotation.convert import converters, find_convert_chain
+
+        if save_dir is None:
+            save_dir = tempfile.TemporaryDirectory(
+                prefix=f"Annotation_{self.asset_id}_format_{to_format}_"
+            )
+        resources_by_format: Dict[AnnotationFormat, List[AnnotationResource]] = {}
+        for resource in self.resources:
+            resources_by_format.setdefault(resource.format, []).append(resource)
+
+        # iterate over converters first
+        # the first converters have higher priority
+        for (con_from_format, con_to_format), converter in converters.items():
+            if con_to_format == to_format:
+                for annotation_format, resources in resources_by_format.items():
+                    if annotation_format != con_from_format:
+                        continue
+                    files = [resource.download(api) for resource in resources]
+                    files = converter(resources, save_dir)
+                    return files
+
+        # if no direct converter is found, try to find the conversion chain
+        for annotation_format, resources in resources_by_format.items():
+            try:
+                converters_chain = find_convert_chain(annotation_format, to_format)
+            except NotImplementedError:
+                continue
+            files = [resource.download(api) for resource in resources]
+            for converter in converters_chain:
+                files = converter(files, save_dir)
+            return files
+
+        raise NotImplementedError(f"No converter found for format: {to_format}")
+
+    def visualize(self, save_dir: str):
+        from ovalbee.annotation.visualize import visualize
+
+        if save_dir is None:
+            save_dir = tempfile.TemporaryDirectory(
+                prefix=f"Annotation_{self.asset_id}_visualization_"
+            )
+        resources_by_format: Dict[AnnotationFormat, List[AnnotationResource]] = {}
+        for resource in self.resources:
+            resources_by_format.setdefault(resource.format, []).append(resource)
+
+        for annotation_format, resources in resources_by_format.items():
+            try:
+                items_files = download_asset_resources(self.source_id)
+                annotation_files = [resource.download for resource in resources]
+                return visualize(
+                    items_files=items_files,
+                    annotation_files=annotation_files,
+                    annotation_format=annotation_format,
+                    save_dir=save_dir,
+                    convert_for_visualization=True,
+                )
+            except NotImplementedError:
+                continue
+        raise NotImplementedError(f"No visualizers found")
