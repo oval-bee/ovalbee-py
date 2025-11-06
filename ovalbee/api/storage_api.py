@@ -5,12 +5,13 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import aioboto3
 from aiobotocore.client import AioBaseClient
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from rfc3986 import urlparse
 
 try:
     import aiofiles
@@ -21,7 +22,7 @@ import logging
 
 from ovalbee.domain.types.s3 import S3Object
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
-from ovalbee.io.decorators import sync_compatible, sync_compatible_generator
+from ovalbee.io.decorators import run_sync, sync_compatible, sync_compatible_generator
 from ovalbee.io.env import is_development
 
 if TYPE_CHECKING:
@@ -486,8 +487,32 @@ class StorageApi(_StorageApi):
         return [S3Object(**obj) for obj in contents]
 
     # --------------- File helpers (local disk <-> S3) ---------------
-    @sync_compatible
-    async def upload(
+    def upload(
+        self,
+        file_path: str,
+        key: str,
+        bucket: str = "workspace",
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        multipart_threshold: int = 64 * 1024 * 1024,  # 64 MiB
+        part_size: int = 8 * 1024 * 1024,  # 8 MiB
+    ) -> str:
+        """
+        Uploads a local file. Uses single PUT for small files; multipart for large files.
+        Returns ETag (for multipart, the ETag is not a simple MD5).
+        """
+        return run_sync(
+            self.upload_async,
+            file_path=file_path,
+            key=key,
+            bucket=bucket,
+            content_type=content_type,
+            metadata=metadata,
+            multipart_threshold=multipart_threshold,
+            part_size=part_size,
+        )
+
+    async def upload_async(
         self,
         file_path: str,
         key: str,
@@ -566,8 +591,40 @@ class StorageApi(_StorageApi):
                 pass
             raise
 
-    @sync_compatible
-    async def upload_dir(
+    def upload_dir(
+        self,
+        dir_path: str,
+        prefix: str = "",
+        bucket: str = "workspace",
+        *,
+        concurrency: int = 8,
+        include_hidden: bool = False,
+        follow_symlinks: bool = False,
+    ) -> List[str]:
+        """
+        Uploads all files under 'dir_path' into bucket/prefix.
+        Returns list of uploaded S3 keys.
+        Args:
+            dir_path: Local directory path to upload.
+            prefix: S3 key prefix under which to upload files.
+            bucket: Target S3 bucket name.
+            concurrency: Number of concurrent uploads.
+            include_hidden: Whether to include hidden files and directories.
+            follow_symlinks: Whether to follow symlinks.
+        Returns:
+            List of uploaded S3 keys.
+        """
+        return run_sync(
+            self.upload_dir_async,
+            dir_path=dir_path,
+            prefix=prefix,
+            bucket=bucket,
+            concurrency=concurrency,
+            include_hidden=include_hidden,
+            follow_symlinks=follow_symlinks,
+        )
+
+    async def upload_dir_async(
         self,
         dir_path: str,
         prefix: str = "",
@@ -606,7 +663,7 @@ class StorageApi(_StorageApi):
         async def _one(p: Path) -> str:
             key = to_key(p)
             async with sem:
-                await self.upload(str(p), bucket=bucket, key=key)
+                await self.upload_async(str(p), bucket=bucket, key=key)
             return key
 
         tasks: List[asyncio.Task] = []
@@ -626,8 +683,21 @@ class StorageApi(_StorageApi):
             uploaded.append(res)
         return uploaded
 
-    @sync_compatible
-    async def download(
+    def download(
+        self, key: str, file_path: str, bucket: str = "workspace", make_dirs: bool = True
+    ) -> None:
+        """
+        Downloads an object to a local file, streaming to disk.
+        """
+        return run_sync(
+            self.download_async,
+            key=key,
+            file_path=file_path,
+            bucket=bucket,
+            make_dirs=make_dirs,
+        )
+
+    async def download_async(
         self,
         key: str,
         file_path: str,
@@ -667,8 +737,31 @@ class StorageApi(_StorageApi):
         finally:
             body.close()
 
-    @sync_compatible
-    async def download_dir(
+    def download_dir(
+        self,
+        prefix: str,
+        dest_dir: str,
+        bucket: str = "workspace",
+        *,
+        concurrency: int = 8,
+        make_dirs: bool = True,
+        skip_empty_dir_markers: bool = True,
+    ) -> List[str]:
+        """
+        Downloads all objects under 'prefix' into 'dest_dir'.
+        Returns list of local file paths written.
+        """
+        return run_sync(
+            self.download_dir_async,
+            prefix=prefix,
+            dest_dir=dest_dir,
+            bucket=bucket,
+            concurrency=concurrency,
+            make_dirs=make_dirs,
+            skip_empty_dir_markers=skip_empty_dir_markers,
+        )
+
+    async def download_dir_async(
         self,
         prefix: str,
         dest_dir: str,
@@ -696,7 +789,7 @@ class StorageApi(_StorageApi):
             rel = key[len(norm_prefix) :].lstrip("/") if norm_prefix else key
             local_path = dest_root / rel
             async with sem:
-                await self.download(bucket, key, str(local_path), make_dirs=make_dirs)
+                await self.download_async(bucket, key, str(local_path), make_dirs=make_dirs)
             return str(local_path)
 
         tasks: List[asyncio.Task] = []
@@ -734,3 +827,44 @@ class StorageApi(_StorageApi):
         return self._client.generate_presigned_url(
             "get_object", Params=params, ExpiresIn=expires_in, HttpMethod="GET"
         )
+
+    def parse_s3_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Parses an S3 URL and returns the bucket and key.
+        Supports s3://bucket/key and various HTTP URL formats.
+        """
+        parsed_url = urlparse(url)
+        bucket: Optional[str] = None
+        key: Optional[str] = None
+
+        if parsed_url.scheme == "s3":
+            bucket = parsed_url.netloc or None
+            key = parsed_url.path.lstrip("/") or None
+        else:
+            host = parsed_url.netloc
+            path = parsed_url.path.lstrip("/")
+            if host and ".s3." in host:
+                bucket = host.split(".s3.", 1)[0] or None
+                key = path or None
+            if bucket is None and host and host.startswith("s3."):
+                parts = path.split("/", 1)
+                if parts[0]:
+                    bucket = parts[0]
+                    key = parts[1] if len(parts) > 1 else None
+            if bucket is None:
+                if path.startswith("s3/"):
+                    path = path[3:]
+                elif path.startswith("storage/"):
+                    path = path[8:]
+                path = path.lstrip("/")
+                parts = path.split("/", 1)
+                if parts[0]:
+                    bucket = parts[0]
+                    key = parts[1] if len(parts) > 1 else None
+
+        if key is not None:
+            key = key.lstrip("/")
+            if not key:
+                key = None
+
+        return bucket, key

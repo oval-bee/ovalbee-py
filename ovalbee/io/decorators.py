@@ -73,8 +73,14 @@ def _stop_bg_loop() -> None:
 
 atexit.register(_stop_bg_loop)
 
+def run_sync(async_fn: Callable[..., Coroutine[Any, Any, Any]], *args, **kwargs) -> Any:
+    _ensure_bg_loop_started()
+    assert _bg_loop is not None
+    fut = asyncio.run_coroutine_threadsafe(async_fn(*args, **kwargs), _bg_loop)
+    return fut.result()
 
-def sync_compatible(async_fn: Callable[..., Coroutine[Any, Any, Any]]):
+
+def sync_compatible(async_fn: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., Any]:
     @functools.wraps(async_fn)
     def wrapper(self, *args, **kwargs):
         try:

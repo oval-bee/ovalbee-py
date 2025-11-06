@@ -61,7 +61,7 @@ class AnnotationApi(CRUDModuleApi):
         annotation = self.get_info_by_id(space_id=space_id, id=id)
         for resource in annotation.resources:
             with tempfile.TemporaryFile(delete=True) as tmp_file:
-                bucket, key = self._api.storage._parse_s3_url(resource.url)  # TODO: implement
+                bucket, key = self._api.storage.parse_s3_url(resource.url)
                 self._api.storage.download(key=key, bucket=bucket, file_path=tmp_file.name)
                 if resource.format == AnnotationFormat.YOLO:
                     with open(tmp_file.name, "r") as f:
