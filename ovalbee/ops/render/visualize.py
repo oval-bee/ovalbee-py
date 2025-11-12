@@ -1,14 +1,71 @@
-from typing import List
+import tempfile
+from typing import List, Optional, Tuple
 
-from ovalbee.annotation.convert import can_convert, convert
-from ovalbee.domain.types.annotation import AnnotationFormat
+import numpy as np
+from PIL import Image, ImageDraw
+
+from ovalbee.api.api import Api
+from ovalbee.domain.types.annotation import (
+    Annotation,
+    AnnotationFormat,
+    AnnotationResource,
+)
+from ovalbee.ops.convert.convert import can_convert, convert
 
 
-def visualize_sly(items_files: List[str], annotation_files: List[str], save_dir: str) -> List[str]:
-    return []
+def get_image_size(path: str) -> Tuple[int, int]:
+    """Get image size (width, height) without loading the full image into memory"""
+    with Image.open(path) as img:
+        return img.size  # (width, height)
+
+
+def create_blank_mask(img_width: int, img_height: int) -> np.ndarray:
+    """Create a blank mask image"""
+    return np.array(Image.new("L", (img_width, img_height), 0))
+
+
+def visualize_sly(
+    img: np.ndarray,
+    annotation_file: str,
+    metadata: Optional[dict] = None,
+) -> np.ndarray:
+    """Visualize SLY annotation on the given image"""
+    import supervisely as sly
+
+    meta = (
+        sly.ProjectMeta.from_json(metadata.get("sly_meta", {})) if metadata else sly.ProjectMeta()
+    )
+    ann = sly.Annotation.load_json_file(annotation_file, meta)
+    ann.draw_pretty(img, thickness=3)
+
+    return img
 
 
 visualizers = {AnnotationFormat.SLY: visualize_sly}
+
+
+def render_resource(
+    ann_resource: AnnotationResource,
+    api: Api,
+    img: np.ndarray,
+):
+    img = img.copy()
+    if ann_resource.format in visualizers:
+        visualizer = visualizers[ann_resource.format]
+        ann_file = ann_resource.download(api)
+        return visualizer(img, ann_file, ann_resource.metadata)
+    raise NotImplementedError(f"No visualizer for format: {ann_resource.format.value}")
+
+
+def render_annotation(
+    annotation: Annotation,
+    api: Api,
+    img: np.ndarray,
+) -> np.ndarray:
+    res = img.copy()
+    for ann_resource in annotation.resources:
+        res = render_resource(ann_resource, api, res)
+    return res
 
 
 def visualize(

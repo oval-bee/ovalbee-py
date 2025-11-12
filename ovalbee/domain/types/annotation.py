@@ -1,12 +1,23 @@
 import enum
 import tempfile
+from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
+import numpy as np
+from PIL import Image
 from pydantic import Field, field_serializer, field_validator, model_validator
 
+from ovalbee.api.api import Api
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.file import FileInfo
+from ovalbee.io.url import parse_s3_url
+from ovalbee.ops.render.visualize import (
+    create_blank_mask,
+    get_image_size,
+    render_annotation,
+    render_resource,
+)
 
 
 class AnnotationFormat(str, enum.Enum):
@@ -20,6 +31,12 @@ class AnnotationFormat(str, enum.Enum):
 
 class AnnotationResource(FileInfo):
     """File resource for annotation data."""
+
+    # metadata structure:
+    # {
+    #     "format": "sly" | "yolo" | ...
+    #     "asset_resource_idx": 0  # index of the corresponding asset resource in the AssetInfo.resources list
+    # }
 
     format: Optional[AnnotationFormat] = None
 
@@ -42,8 +59,19 @@ class AnnotationResource(FileInfo):
             values["format"] = format_value
         return values
 
-    def download(self, api):
-        pass
+    def download(self, api: Api, save_dir: str = None, prefix: str = None) -> str:
+        """Download resource file and return path to it"""
+        prefix = prefix or f"AnnotationResource_{self.key}_"
+        return super().download(api, save_dir, prefix)
+
+    def download_async(self, api: Api, save_dir: str = None, prefix: str = None):
+        """Download resource file asynchronously and return path to it"""
+        prefix = prefix or f"AnnotationResource_{self.key}_"
+        return super().download_async(api, save_dir, prefix)
+
+    def render(self, api: Api, img: np.ndarray) -> np.ndarray:
+        """Render annotation on the given image and return the result image"""
+        return render_resource(self, api, img)
 
 
 class AnnotationTask(str, enum.Enum):
@@ -94,15 +122,16 @@ class Annotation(BaseInfo):
             source_id=source_id if source_id is not None else self.source_id,
         )
 
-    def convert(self, to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
+    def convert(self, api: Api, to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
         """Convert annotation to specific format and return paths to files"""
         # TODO: Maybe a separate class?
-        from ovalbee.annotation.convert import converters, find_convert_chain
+        from ovalbee.ops.convert.convert import converters, find_convert_chain
 
         if save_dir is None:
             save_dir = tempfile.TemporaryDirectory(
                 prefix=f"Annotation_{self.asset_id}_format_{to_format}_"
             )
+            save_dir = save_dir.name
         resources_by_format: Dict[AnnotationFormat, List[AnnotationResource]] = {}
         for resource in self.resources:
             resources_by_format.setdefault(resource.format, []).append(resource)
@@ -114,9 +143,9 @@ class Annotation(BaseInfo):
                 for annotation_format, resources in resources_by_format.items():
                     if annotation_format != con_from_format:
                         continue
-                    files = [resource.download(api) for resource in resources]
-                    files = converter(resources, save_dir)
-                    return files
+                    files = [resource.download(api, save_dir) for resource in resources]
+                    res_files = converter(files, save_dir)
+                    return res_files
 
         # if no direct converter is found, try to find the conversion chain
         for annotation_format, resources in resources_by_format.items():
@@ -124,15 +153,39 @@ class Annotation(BaseInfo):
                 converters_chain = find_convert_chain(annotation_format, to_format)
             except NotImplementedError:
                 continue
-            files = [resource.download(api) for resource in resources]
+            files = [resource.download(api, save_dir) for resource in resources]
             for converter in converters_chain:
                 files = converter(files, save_dir)
             return files
 
         raise NotImplementedError(f"No converter found for format: {to_format}")
 
-    def visualize(self, save_dir: str):
-        from ovalbee.annotation.visualize import visualize
+    def render(self, api: Api, img: np.ndarray | Path | str | FileInfo | None = None) -> np.ndarray:
+        """Render annotation on the given image and return the result image"""
+        if isinstance(img, FileInfo):
+            img = img.download(api)
+        if isinstance(img, (str, Path)):
+            if not Path(img).is_file():
+                bucket, key = parse_s3_url(img)
+                prefix = f"AnnotationRender_{key}_"
+                img = tempfile.NamedTemporaryFile(prefix=prefix, delete=False).name
+                api.storage.download(key=key, bucket=bucket, file_path=img)
+                img = np.array(Image.open(img).convert("RGB"))
+            else:
+                img = np.array(Image.open(img).convert("RGB"))
+        elif img is None:
+            imgs = api.asset.download_resources(self.space_id, self.asset_id)
+            if len(imgs) != 1:  # TODO: support multiple resources
+                raise NotImplementedError()
+            img = imgs[0]
+            img_size = get_image_size(img)
+            img = create_blank_mask(*img_size)
+        else:
+            raise ValueError(f"Unsupported image type: {type(img)}")
+        return render_annotation(self, api, img)
+
+    def visualize(self, api: Api, save_dir: str):
+        from ovalbee.ops.render.visualize import visualize
 
         if save_dir is None:
             save_dir = tempfile.TemporaryDirectory(
@@ -142,9 +195,10 @@ class Annotation(BaseInfo):
         for resource in self.resources:
             resources_by_format.setdefault(resource.format, []).append(resource)
 
+        asset_info = api.asset.get_info_by_id(space_id=self.space_id, id=self.source_id)
         for annotation_format, resources in resources_by_format.items():
             try:
-                items_files = download_asset_resources(self.source_id)
+                items_files = [res.download(api) for res in asset_info.resources]
                 annotation_files = [resource.download for resource in resources]
                 return visualize(
                     items_files=items_files,
