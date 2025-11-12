@@ -13,6 +13,7 @@
 venv
 build/
 dist/
+test_data/
 
 
 uv.lock
