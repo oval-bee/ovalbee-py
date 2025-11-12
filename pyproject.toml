@@ -21,7 +21,7 @@ dependencies = [
     "aioboto3",
     "botocore",
     "requests_toolbelt",
-    "httpx[http2]",
+    "httpx[http2]==0.27.2",
     "types-aiobotocore-s3",
 ]
 
@@ -30,6 +30,7 @@ dev = [
     "pytest>=8.4.2",
     "boto3",
     "minio",
+    "supervisely==6.73.463",
 ]
 image = [
     "numpy>=2.2.6",
