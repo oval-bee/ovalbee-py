@@ -16,10 +16,7 @@ def asset_info():
     return AssetInfo(space_id=1, name="new.jpg", type=AssetType.IMAGES, resources=[file1, file2])
 
 
-api = Api(
-    server_address="http://0.0.0.0:30080",
-    token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
-)
+api = Api.from_env()
 
 
 def test_list_assets():

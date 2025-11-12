@@ -4,10 +4,7 @@ import ovalbee as ob
 from ovalbee.api.api import Api
 from ovalbee.api.storage_api import S3StorageClient
 
-api = Api(
-    server_address="http://0.0.0.0:30080",
-    token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
-)
+api = Api.from_env()
 
 
 async def _upload_file(local_path: str):

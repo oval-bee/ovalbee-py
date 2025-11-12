@@ -1,23 +1,18 @@
 import enum
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
 from pydantic import Field, field_serializer, field_validator, model_validator
 
-from ovalbee.api.api import Api
+if TYPE_CHECKING:
+    from ovalbee.api.api import Api
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.file import FileInfo
 from ovalbee.io.url import parse_s3_url
-from ovalbee.ops.render.visualize import (
-    create_blank_mask,
-    get_image_size,
-    render_annotation,
-    render_resource,
-)
 
 
 class AnnotationFormat(str, enum.Enum):
@@ -59,18 +54,20 @@ class AnnotationResource(FileInfo):
             values["format"] = format_value
         return values
 
-    def download(self, api: Api, save_dir: str = None, prefix: str = None) -> str:
+    def download(self, api: "Api", save_dir: str = None, prefix: str = None) -> str:
         """Download resource file and return path to it"""
         prefix = prefix or f"AnnotationResource_{self.key}_"
         return super().download(api, save_dir, prefix)
 
-    def download_async(self, api: Api, save_dir: str = None, prefix: str = None):
+    def download_async(self, api: "Api", save_dir: str = None, prefix: str = None):
         """Download resource file asynchronously and return path to it"""
         prefix = prefix or f"AnnotationResource_{self.key}_"
         return super().download_async(api, save_dir, prefix)
 
-    def render(self, api: Api, img: np.ndarray) -> np.ndarray:
+    def render(self, api: "Api", img: np.ndarray) -> np.ndarray:
         """Render annotation on the given image and return the result image"""
+        from ovalbee.ops.render.visualize import render_resource
+
         return render_resource(self, api, img)
 
 
@@ -122,7 +119,7 @@ class Annotation(BaseInfo):
             source_id=source_id if source_id is not None else self.source_id,
         )
 
-    def convert(self, api: Api, to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
+    def convert(self, api: "Api", to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
         """Convert annotation to specific format and return paths to files"""
         # TODO: Maybe a separate class?
         from ovalbee.ops.convert.convert import converters, find_convert_chain
@@ -160,8 +157,14 @@ class Annotation(BaseInfo):
 
         raise NotImplementedError(f"No converter found for format: {to_format}")
 
-    def render(self, api: Api, img: np.ndarray | Path | str | FileInfo | None = None) -> np.ndarray:
+    def render(self, api: "Api", img: np.ndarray | Path | str | FileInfo | None = None) -> np.ndarray:
         """Render annotation on the given image and return the result image"""
+        from ovalbee.ops.render.visualize import (
+            create_blank_mask,
+            get_image_size,
+            render_annotation,
+        )
+
         if isinstance(img, FileInfo):
             img = img.download(api)
         if isinstance(img, (str, Path)):
@@ -184,7 +187,7 @@ class Annotation(BaseInfo):
             raise ValueError(f"Unsupported image type: {type(img)}")
         return render_annotation(self, api, img)
 
-    def visualize(self, api: Api, save_dir: str):
+    def visualize(self, api: "Api", save_dir: str):
         from ovalbee.ops.render.visualize import visualize
 
         if save_dir is None:

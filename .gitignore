@@ -18,3 +18,4 @@ test_data/
 
 uv.lock
 supervisely
+.env

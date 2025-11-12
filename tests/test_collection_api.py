@@ -34,10 +34,7 @@ def collection_info(asset_info_1, asset_info_2):
     )
 
 
-api = Api(
-    server_address="http://0.0.0.0:30080",
-    token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
-)
+api = Api.from_env()
 
 
 def test_list_collections():

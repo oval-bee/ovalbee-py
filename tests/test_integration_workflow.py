@@ -17,17 +17,14 @@ class TestIntegrationWorkflow:
     @pytest.fixture(scope="class")
     def api(self):
         """API client fixture."""
-        return Api(
-            server_address="http://localhost:30080",
-            token="bzzz_admin_api_token_$MTpnbzkyUllVZmFBWTVLUmJ4cUo5clVIRVh1a1ppMlJ4Rg",
-        )
+        return Api.from_env()
 
     @pytest.fixture(scope="class")
     def test_file_paths(self):
         """Test file paths fixture."""
         return {
-            "image_path": "/Users/almaz/Downloads/1857_Train data/dataset 2025-10-21 11-22-57/img/000000795h.jpg",
-            "annotation_path": "/Users/almaz/Downloads/1857_Train data/dataset 2025-10-21 11-22-57/ann/000000795h.jpg.json",
+            "image_path": "test_data/000000795h.jpg",
+            "annotation_path": "test_data/000000795h.jpg.json",
         }
 
     @pytest.fixture(scope="class")
