@@ -1,4 +1,5 @@
-from typing import List, Optional
+
+from typing import Any, Generator, List
 
 from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.asset import AssetInfo, AssetType
@@ -42,3 +43,15 @@ class AssetApi(CRUDModuleApi):
     # --- Update ---------------------------------------------------
     def update(self, asset_info: AssetInfo) -> AssetInfo:
         return self._update(asset_info)
+
+    # --- Download Resources --------------------------------------
+    def download_resources_generator(
+        self, space_id: int, id: str, save_dir: str = None
+    ) -> Generator[Any, None, None]:
+        asset = self.get_info_by_id(space_id=space_id, id=id)
+
+        for resource in asset.resources:
+            resource.download(self._api, save_dir)
+
+    def download_resources(self, space_id: int, id: str, save_dir: str = None) -> List[Any]:
+        return list(self.download_resources_generator(space_id=space_id, id=id, save_dir=save_dir))
