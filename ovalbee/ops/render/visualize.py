@@ -4,9 +4,12 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw
 
+from supervisely.annotation.annotation import Annotation
+
 if TYPE_CHECKING:
     from ovalbee.api.api import Api
-from ovalbee.domain.types.annotation import AnnotationFormat
+
+from ovalbee.domain.types.annotation import AnnotationFormat, AnnotationResource
 from ovalbee.ops.convert.convert import can_convert, convert
 from ovalbee.ops.convert.sly import get_sly_meta_from_annotation
 
@@ -30,13 +33,14 @@ def visualize_sly(
     """Visualize SLY annotation on the given image"""
     import supervisely as sly
 
+    ann_dict = sly.json.load_json_file(annotation_file)
     sly_meta = metadata.get("sly_meta") if metadata else None
     if sly_meta is not None:
         sly_meta = sly.ProjectMeta.from_json(sly_meta)
     else:
-        sly_meta = get_sly_meta_from_annotation(sly.json.load_json_file(annotation_file))
+        sly_meta = get_sly_meta_from_annotation(ann_dict)
 
-    ann = sly.Annotation.load_json_file(annotation_file, sly_meta)
+    ann = sly.Annotation.from_json(ann_dict, sly_meta)
     ann.draw_pretty(img, thickness=3)
 
     return img
@@ -46,7 +50,7 @@ visualizers = {AnnotationFormat.SLY: visualize_sly}
 
 
 def render_resource(
-    ann_resource,
+    ann_resource: AnnotationResource,
     api: "Api",
     img: np.ndarray,
 ):
@@ -59,7 +63,7 @@ def render_resource(
 
 
 def render_annotation(
-    annotation,
+    annotation: Annotation,
     api: "Api",
     img: np.ndarray,
 ) -> np.ndarray:
