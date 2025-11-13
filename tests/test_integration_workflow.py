@@ -93,12 +93,7 @@ class TestIntegrationWorkflow:
         )
         created_asset = api.asset.create(asset)
 
-        assert isinstance(created_asset, str)
-
-        assert isinstance(created_asset, str)
-        created_asset = api.asset.get_info_by_id(
-            space_id=test_constants["space_id"], id=created_asset
-        )
+        assert isinstance(created_asset, ob.AssetInfo)
         assert created_asset.id is not None
         assert created_asset.type == ob.AssetType.IMAGES
 
@@ -120,10 +115,7 @@ class TestIntegrationWorkflow:
         )
         created_annotation = api.annotation.create(annotation)
 
-        assert isinstance(created_annotation, str)
-        created_annotation = api.annotation.get_info_by_id(
-            space_id=test_constants["space_id"], id=created_annotation
-        )
+        assert isinstance(created_annotation, ob.Annotation)
         assert created_annotation.id is not None
         assert created_annotation.source_id == TestIntegrationWorkflow.asset.id
 

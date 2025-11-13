@@ -101,7 +101,7 @@ ann.to_coco(inplace=True)
 ann.filter_classes(["cat", "dog"], inplace=True)
 ann.upload(inplace=True)
 
-ann.render(img=asset.download_np())  # (install ovalbee[render])
+api.annotation_ops.render(ann, image=asset.download_np())  # (install ovalbee[render])
 
 collection.transform("rotate", angle=90)
 collection.split(train=0.7, val=0.2, test=0.1, shuffle=True)

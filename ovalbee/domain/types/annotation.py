@@ -1,19 +1,11 @@
 import enum
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-import numpy as np
-from PIL import Image
 from pydantic import Field, field_serializer, field_validator, model_validator
 
-if TYPE_CHECKING:
-    from ovalbee.api.api import Api
-
-from ovalbee.domain.types.asset import AssetInfo, AssetType
+from ovalbee.domain.types.asset import AssetType
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.file import FileInfo
-from ovalbee.io.url import parse_s3_url
 
 
 class AnnotationFormat(str, enum.Enum):
@@ -54,22 +46,6 @@ class AnnotationResource(FileInfo):
         if format_value is not None:
             values["format"] = format_value
         return values
-
-    def download(self, api: "Api", save_dir: str = None, prefix: str = None) -> str:
-        """Download resource file and return path to it"""
-        prefix = prefix or f"AnnotationResource_{Path(self.key).name}_"
-        return super().download(api, save_dir, prefix)
-
-    def download_async(self, api: "Api", save_dir: str = None, prefix: str = None):
-        """Download resource file asynchronously and return path to it"""
-        prefix = prefix or f"AnnotationResource_{Path(self.key).name}_"
-        return super().download_async(api, save_dir, prefix)
-
-    def render(self, api: "Api", img: np.ndarray) -> np.ndarray:
-        """Render annotation on the given image and return the result image"""
-        from ovalbee.ops.render.visualize import render_resource
-
-        return render_resource(self, api, img)
 
 
 class AnnotationTask(str, enum.Enum):
@@ -119,109 +95,3 @@ class Annotation(BaseInfo):
             resources=resources if resources is not None else self.resources.copy(),
             source_id=source_id if source_id is not None else self.source_id,
         )
-
-    def convert(self, api: "Api", to_format: AnnotationFormat, save_dir: str = None) -> List[str]:
-        """Convert annotation to specific format and return paths to files"""
-        # TODO: Maybe a separate class?
-        from ovalbee.ops.convert.convert import converters, find_convert_chain
-
-        if save_dir is None:
-            save_dir = tempfile.TemporaryDirectory(
-                prefix=f"Annotation_{self.asset_id}_format_{to_format}_"
-            )
-            save_dir = save_dir.name
-        resources_by_format: Dict[AnnotationFormat, List[AnnotationResource]] = {}
-        for resource in self.resources:
-            resources_by_format.setdefault(resource.format, []).append(resource)
-
-        # iterate over converters first
-        # the first converters have higher priority
-        for (con_from_format, con_to_format), converter in converters.items():
-            if con_to_format == to_format:
-                for annotation_format, resources in resources_by_format.items():
-                    if annotation_format != con_from_format:
-                        continue
-                    files = [resource.download(api, save_dir) for resource in resources]
-                    res_files = converter(files, save_dir)
-                    return res_files
-
-        # if no direct converter is found, try to find the conversion chain
-        for annotation_format, resources in resources_by_format.items():
-            try:
-                converters_chain = find_convert_chain(annotation_format, to_format)
-            except NotImplementedError:
-                continue
-            files = [resource.download(api, save_dir) for resource in resources]
-            for converter in converters_chain:
-                files = converter(files, save_dir)
-            return files
-
-        raise NotImplementedError(f"No converter found for format: {to_format}")
-
-    def render(
-        self,
-        api: "Api",
-        img: np.ndarray | Path | str | FileInfo | None = None,
-        img_height: int = None,
-        img_width: int = None,
-    ) -> np.ndarray:
-        """Render annotation on the given image and return the result image"""
-        from ovalbee.ops.render.visualize import (
-            create_blank_mask,
-            get_image_size,
-            render_annotation,
-        )
-
-        if isinstance(img, FileInfo):
-            img = img.download(api)
-        if isinstance(img, (str, Path)):
-            if not Path(img).is_file():
-                bucket, key = parse_s3_url(img)
-                prefix = f"AnnotationRender_{Path(key).name}_"
-                img = tempfile.NamedTemporaryFile(prefix=prefix, delete=False).name
-                api.storage.download(key=key, bucket=bucket, file_path=img)
-                img = np.array(Image.open(img).convert("RGB"))
-            else:
-                img = np.array(Image.open(img).convert("RGB"))
-        elif isinstance(img, np.ndarray):
-            pass
-        elif img_height is not None and img_width is not None:
-            img = create_blank_mask(img_width, img_height)
-        elif img is None:
-            imgs = api.asset.download(self.space_id, self.asset_id)
-            if len(imgs) != 1:  # TODO: support multiple resources
-                raise NotImplementedError()
-            img = imgs[0]
-            img_size = get_image_size(img)
-            img = create_blank_mask(*img_size)
-        else:
-            raise ValueError(f"Unsupported image type: {type(img)}")
-        return render_annotation(self, api, img)
-
-    def visualize(self, api: "Api", save_dir: str):
-        from ovalbee.ops.render.visualize import visualize
-
-        if save_dir is None:
-            save_dir = tempfile.TemporaryDirectory(
-                prefix=f"Annotation_{self.asset_id}_visualization_"
-            )
-        resources_by_format: Dict[AnnotationFormat, List[AnnotationResource]] = {}
-        for resource in self.resources:
-            resources_by_format.setdefault(resource.format, []).append(resource)
-
-        asset_info = api.asset.get_info_by_id(space_id=self.space_id, id=self.source_id)
-        for annotation_format, resources in resources_by_format.items():
-            try:
-                items_files = [res.download(api) for res in asset_info.resources]
-                annotation_files = [resource.download for resource in resources]
-                return visualize(
-                    items_files=items_files,
-                    annotation_files=annotation_files,
-                    annotation_format=annotation_format,
-                    save_dir=save_dir,
-                    convert_for_visualization=True,
-                )
-            except NotImplementedError:
-                continue
-        raise NotImplementedError(f"No visualizers found")
-        raise NotImplementedError(f"No visualizers found")

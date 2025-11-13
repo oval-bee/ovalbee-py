@@ -11,7 +11,6 @@ from ovalbee.domain.types.annotation import (
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.collection import CollectionInfo
 from ovalbee.domain.types.file import FileInfo, FileType
-from ovalbee.io.decorators import run_sync
 
 
 class TestRenderAnnotations:
@@ -63,10 +62,7 @@ class TestRenderAnnotations:
         )
         asset = api.asset.create(asset)
 
-        assert isinstance(asset, str)
-
-        asset = api.asset.get_info_by_id(space_id=test_constants["space_id"], id=asset)
-        assert asset is not None
+        assert isinstance(asset, AssetInfo)
         assert isinstance(asset.id, str)
 
         # Store asset for later tests
@@ -81,27 +77,21 @@ class TestRenderAnnotations:
             key=key,
             file_path=test_file_paths["annotation_path"],
         )
-        annotation = api.annotation.create(
-            Annotation(
-                space_id=test_constants["space_id"],
-                source_id=TestRenderAnnotations.asset.id,
-                resources=[
-                    AnnotationResource(
-                        key=key,
-                        url=f"s3://{test_constants['bucket']}/{key}",
-                        type=FileType.INTERNAL,
-                        format=AnnotationFormat.SLY,
-                    )
-                ],
-            )
+        annotation_info = Annotation(
+            space_id=test_constants["space_id"],
+            source_id=TestRenderAnnotations.asset.id,
+            resources=[
+                AnnotationResource(
+                    key=key,
+                    url=f"s3://{test_constants['bucket']}/{key}",
+                    type=FileType.INTERNAL,
+                    format=AnnotationFormat.SLY,
+                )
+            ],
         )
+        annotation = api.annotation.create(annotation_info)
 
-        assert isinstance(annotation, str)
-
-        annotation = api.annotation.get_info_by_id(
-            space_id=test_constants["space_id"], id=annotation
-        )
-        assert annotation is not None
+        assert isinstance(annotation, Annotation)
         assert isinstance(annotation.id, str)
 
         # Store annotation for later tests
@@ -112,7 +102,7 @@ class TestRenderAnnotations:
         annotation = TestRenderAnnotations.annotation
         assert annotation is not None
 
-        rendered_img = annotation.render(api=api)
+        rendered_img = api.annotation_ops.render(annotation, image=test_file_paths["image_path"])
         Image.fromarray(rendered_img).save(test_file_paths["result_image_path"])
 
         assert isinstance(rendered_img, np.ndarray)
