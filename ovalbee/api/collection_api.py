@@ -1,16 +1,16 @@
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.annotation import Annotation
-from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.collection import CollectionInfo
 
 
 class CollectionApi(CRUDModuleApi):
+    support_bulk_creation: bool = False
 
     @staticmethod
-    def _info_class() -> BaseInfo:
+    def _info_class() -> type[CollectionInfo]:
         return CollectionInfo
 
     def _endpoint_prefix(self) -> str:
@@ -18,30 +18,26 @@ class CollectionApi(CRUDModuleApi):
 
     # --- Creation -------------------------------------------------
     def create(self, collection_info: CollectionInfo) -> CollectionInfo:
-        data = collection_info.model_dump(exclude_unset=True)
-        resp = self._api.post(self.endpoint, data=data)
-        resp_json = resp.json()
-        collection_id = resp_json.get("id")
-        created = self.get_info_by_id(space_id=collection_info.space_id, id=collection_id)
-        return created
+        return cast(CollectionInfo, super().create(collection_info))
 
     def create_bulk(self, *args, **kwargs):
         raise NotImplementedError("Only single collection creation is supported")
 
     # --- Retrieval ------------------------------------------------
-    def get_info_by_id(self, space_id: int, id: int) -> CollectionInfo:
-        return self._get_info_by_id(space_id, id)
+    def get_info_by_id(self, space_id: int, id: int) -> Optional[CollectionInfo]:
+        return cast(Optional[CollectionInfo], super().get_info_by_id(space_id, id))
 
     def get_list(self, space_id: int) -> List[CollectionInfo]:
-        return self._get_list_all_pages(space_id=space_id)
+        items = super().get_list(space_id=space_id)
+        return [cast(CollectionInfo, item) for item in items]
 
     # --- Update ---------------------------------------------------
     def update(self, collection_info: CollectionInfo) -> CollectionInfo:
-        return self._update(collection_info)
+        return cast(CollectionInfo, super().update(collection_info))
 
     # --- Deletion -------------------------------------------------
     def delete(self, id: int) -> None:
-        self._delete(id)
+        super().delete(id)
 
     # --- Add assets to collection ----------------------------------
     def add_assets(self, collection_id: int, asset_ids: List[int]) -> Optional[List[int]]:
