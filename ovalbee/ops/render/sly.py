@@ -1,9 +1,5 @@
 from typing import Optional, Tuple
 
-import cv2
-import numpy as np
-from PIL import Image
-
 from ovalbee.ops.convert.sly import get_sly_meta_from_annotation
 
 BBOX_THICKNESS_PERCENT = 0.3  # percent of the smaller image side
@@ -15,12 +11,18 @@ HEATMAP_THRESHOLD = 0.2
 
 
 def visualize_sly(
-    img: np.ndarray,
+    img,  # : np.ndarray,
     annotation_file: str,
     metadata: Optional[dict] = None,
-) -> np.ndarray:
+):  # -> np.ndarray:
     """Visualize SLY annotation on the given image"""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
     import supervisely as sly
+
+    img: np.ndarray
 
     def get_thickness(render: np.ndarray, thickness_percent: float, from_min=False) -> int:
         render_height, render_width, _ = render.shape
@@ -132,7 +134,5 @@ def visualize_sly(
     render_pil = Image.fromarray(rgba.astype("uint8")).convert("RGBA")
     combined = Image.alpha_composite(img_pil, render_pil)
     img = np.array(combined.convert("RGB"))
-
-    return img
 
     return img
