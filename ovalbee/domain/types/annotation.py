@@ -9,6 +9,7 @@ from pydantic import Field, field_serializer, field_validator, model_validator
 
 if TYPE_CHECKING:
     from ovalbee.api.api import Api
+
 from ovalbee.domain.types.asset import AssetInfo, AssetType
 from ovalbee.domain.types.base import BaseInfo
 from ovalbee.domain.types.file import FileInfo
@@ -157,7 +158,13 @@ class Annotation(BaseInfo):
 
         raise NotImplementedError(f"No converter found for format: {to_format}")
 
-    def render(self, api: "Api", img: np.ndarray | Path | str | FileInfo | None = None) -> np.ndarray:
+    def render(
+        self,
+        api: "Api",
+        img: np.ndarray | Path | str | FileInfo | None = None,
+        img_height: int = None,
+        img_width: int = None,
+    ) -> np.ndarray:
         """Render annotation on the given image and return the result image"""
         from ovalbee.ops.render.visualize import (
             create_blank_mask,
@@ -176,6 +183,10 @@ class Annotation(BaseInfo):
                 img = np.array(Image.open(img).convert("RGB"))
             else:
                 img = np.array(Image.open(img).convert("RGB"))
+        elif isinstance(img, np.ndarray):
+            pass
+        elif img_height is not None and img_width is not None:
+            img = create_blank_mask(img_width, img_height)
         elif img is None:
             imgs = api.asset.download(self.space_id, self.asset_id)
             if len(imgs) != 1:  # TODO: support multiple resources
@@ -212,4 +223,5 @@ class Annotation(BaseInfo):
                 )
             except NotImplementedError:
                 continue
+        raise NotImplementedError(f"No visualizers found")
         raise NotImplementedError(f"No visualizers found")
