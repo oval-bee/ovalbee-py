@@ -56,12 +56,12 @@ class AnnotationResource(FileInfo):
 
     def download(self, api: "Api", save_dir: str = None, prefix: str = None) -> str:
         """Download resource file and return path to it"""
-        prefix = prefix or f"AnnotationResource_{self.key}_"
+        prefix = prefix or f"AnnotationResource_{Path(self.key).name}_"
         return super().download(api, save_dir, prefix)
 
     def download_async(self, api: "Api", save_dir: str = None, prefix: str = None):
         """Download resource file asynchronously and return path to it"""
-        prefix = prefix or f"AnnotationResource_{self.key}_"
+        prefix = prefix or f"AnnotationResource_{Path(self.key).name}_"
         return super().download_async(api, save_dir, prefix)
 
     def render(self, api: "Api", img: np.ndarray) -> np.ndarray:
@@ -170,7 +170,7 @@ class Annotation(BaseInfo):
         if isinstance(img, (str, Path)):
             if not Path(img).is_file():
                 bucket, key = parse_s3_url(img)
-                prefix = f"AnnotationRender_{Path(self.key).name}_"
+                prefix = f"AnnotationRender_{Path(key).name}_"
                 img = tempfile.NamedTemporaryFile(prefix=prefix, delete=False).name
                 api.storage.download(key=key, bucket=bucket, file_path=img)
                 img = np.array(Image.open(img).convert("RGB"))
