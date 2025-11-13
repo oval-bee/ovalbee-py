@@ -1,9 +1,11 @@
+import asyncio
 from typing import Any, Generator, List, Union
 
 from ovalbee.api.module_api import CRUDModuleApi
 from ovalbee.domain.types.annotation import Annotation
 from ovalbee.domain.types.asset import AssetType
 from ovalbee.domain.types.base import BaseInfo
+from ovalbee.io.decorators import run_sync
 
 
 class AnnotationApi(CRUDModuleApi):
@@ -55,13 +57,15 @@ class AnnotationApi(CRUDModuleApi):
         return self._update(asset_info)
 
     # --- Download -------------------------------------------------
-    def download_resources_generator(
-        self, space_id: int, id: str, save_dir: str = None
-    ) -> Generator[Any, None, None]:
-        annotation = self.get_info_by_id(space_id=space_id, id=id)
+    async def download_async(self, space_id: int, id: str, save_dir: str = None) -> List[Any]:
+        """Download all resource files of the annotation and return list of paths to them"""
+        ann = self.get_info_by_id(space_id=space_id, id=id)
 
-        for resource in annotation.resources:
-            resource.download(self._api, save_dir)
+        tasks = []
+        for resource in ann.resources:
+            tasks.append(resource.download_async(self._api, save_dir))
+        return await asyncio.gather(*tasks)
 
-    def download_resources(self, space_id: int, id: str, save_dir: str = None) -> List[Any]:
-        return list(self.download_resources_generator(space_id=space_id, id=id, save_dir=save_dir))
+    def download(self, space_id: int, id: str, save_dir: str = None) -> List[Any]:
+        """Download all resource files of the annotation and return list of paths to them"""
+        return run_sync(self.download_async, space_id=space_id, id=id, save_dir=save_dir)

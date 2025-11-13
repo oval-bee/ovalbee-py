@@ -177,7 +177,7 @@ class Annotation(BaseInfo):
             else:
                 img = np.array(Image.open(img).convert("RGB"))
         elif img is None:
-            imgs = api.asset.download_resources(self.space_id, self.asset_id)
+            imgs = api.asset.download(self.space_id, self.asset_id)
             if len(imgs) != 1:  # TODO: support multiple resources
                 raise NotImplementedError()
             img = imgs[0]

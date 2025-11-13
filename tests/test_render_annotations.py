@@ -112,7 +112,7 @@ class TestRenderAnnotations:
         annotation = TestRenderAnnotations.annotation
         assert annotation is not None
 
-        rendered_img = run_sync(annotation.render, api=api, img=test_file_paths["image_path"])
+        rendered_img = annotation.render(api=api)
         Image.fromarray(rendered_img).save(test_file_paths["result_image_path"])
 
         assert isinstance(rendered_img, np.ndarray)
