@@ -1,8 +1,7 @@
-import tempfile
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from supervisely.annotation.annotation import Annotation
 
@@ -11,7 +10,9 @@ if TYPE_CHECKING:
 
 from ovalbee.domain.types.annotation import AnnotationFormat, AnnotationResource
 from ovalbee.ops.convert.convert import can_convert, convert
-from ovalbee.ops.convert.sly import get_sly_meta_from_annotation
+from ovalbee.ops.render.sly import visualize_sly
+
+visualizers = {AnnotationFormat.SLY: visualize_sly}
 
 
 def get_image_size(path: str) -> Tuple[int, int]:
@@ -22,31 +23,7 @@ def get_image_size(path: str) -> Tuple[int, int]:
 
 def create_blank_mask(img_width: int, img_height: int) -> np.ndarray:
     """Create a blank mask image"""
-    return np.array(Image.new("L", (img_width, img_height), 0))
-
-
-def visualize_sly(
-    img: np.ndarray,
-    annotation_file: str,
-    metadata: Optional[dict] = None,
-) -> np.ndarray:
-    """Visualize SLY annotation on the given image"""
-    import supervisely as sly
-
-    ann_dict = sly.json.load_json_file(annotation_file)
-    sly_meta = metadata.get("sly_meta") if metadata else None
-    if sly_meta is not None:
-        sly_meta = sly.ProjectMeta.from_json(sly_meta)
-    else:
-        sly_meta = get_sly_meta_from_annotation(ann_dict)
-
-    ann = sly.Annotation.from_json(ann_dict, sly_meta)
-    ann.draw_pretty(img, thickness=3)
-
-    return img
-
-
-visualizers = {AnnotationFormat.SLY: visualize_sly}
+    return np.array(Image.new("RGBA", (img_width, img_height), (0, 0, 0, 0)))
 
 
 def render_resource(
