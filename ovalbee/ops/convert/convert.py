@@ -1,7 +1,7 @@
 from collections import deque
 from typing import List
 
-from ovalbee.domain.types.annotation import AnnotationFormat
+from ovalbee.dto.annotation import AnnotationFormat
 
 
 def convert_sly_to_yolo(files: List[str], save_dir: str) -> List[str]:

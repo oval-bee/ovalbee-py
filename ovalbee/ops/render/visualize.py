@@ -3,12 +3,13 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
+
 from supervisely.annotation.annotation import Annotation
 
 if TYPE_CHECKING:
     from ovalbee.api.api import Api
 
-from ovalbee.domain.types.annotation import AnnotationFormat, AnnotationResource
+from ovalbee.dto.annotation import AnnotationFormat, AnnotationResource
 from ovalbee.ops.convert.convert import can_convert, convert
 from ovalbee.ops.render.sly import visualize_sly
 
@@ -103,4 +104,5 @@ def visualize(
                 convert_for_visualization=False,
             )
 
+    raise NotImplementedError("No visualizer available for format.")
     raise NotImplementedError("No visualizer available for format.")

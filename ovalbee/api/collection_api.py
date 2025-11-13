@@ -1,9 +1,9 @@
 from typing import List, Optional, cast
 
 from ovalbee.api.module_api import CRUDModuleApi
-from ovalbee.domain.types.asset import AssetInfo, AssetType
-from ovalbee.domain.types.annotation import Annotation
-from ovalbee.domain.types.collection import CollectionInfo
+from ovalbee.dto.asset import AssetInfo, AssetType
+from ovalbee.dto.annotation import Annotation
+from ovalbee.dto.collection import CollectionInfo
 
 
 class CollectionApi(CRUDModuleApi):

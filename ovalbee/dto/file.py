@@ -1,12 +1,12 @@
 import asyncio
 import enum
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic import Field, field_serializer, model_validator
 
-from ovalbee.domain.types.base import BaseInfo
+from ovalbee.dto.base import BaseInfo
 from ovalbee.io.url import parse_s3_url
 
 if TYPE_CHECKING:

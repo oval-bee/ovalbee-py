@@ -2,8 +2,8 @@ import asyncio
 from typing import Any, List, Optional, Union, cast
 
 from ovalbee.api.module_api import CRUDModuleApi
-from ovalbee.domain.types.annotation import Annotation
-from ovalbee.domain.types.asset import AssetType
+from ovalbee.dto.annotation import Annotation
+from ovalbee.dto.asset import AssetType
 from ovalbee.io.decorators import run_sync
 
 

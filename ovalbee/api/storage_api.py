@@ -19,7 +19,7 @@ except ImportError:
 
 import logging
 
-from ovalbee.domain.types.s3 import S3Object
+from ovalbee.dto.s3 import S3Object
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
 from ovalbee.io.decorators import run_sync, sync_compatible, sync_compatible_generator
 from ovalbee.io.env import is_development

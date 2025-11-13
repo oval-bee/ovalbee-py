@@ -5,8 +5,8 @@ Tests for asset-related types and functionalities.
 import pytest
 
 from ovalbee.api.api import Api
-from ovalbee.domain.types.asset import AssetInfo, AssetType
-from ovalbee.domain.types.file import FileInfo, FileType
+from ovalbee.dto.asset import AssetInfo, AssetType
+from ovalbee.dto.file import FileInfo, FileType
 
 
 @pytest.fixture

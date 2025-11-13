@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, List, Optional, cast
 
 from ovalbee.api.module_api import CRUDModuleApi
-from ovalbee.domain.types.asset import AssetInfo, AssetType
+from ovalbee.dto.asset import AssetInfo, AssetType
 from ovalbee.io.decorators import run_sync
 
 

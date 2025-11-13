@@ -4,9 +4,8 @@ from typing import List, Optional
 from pydantic import Field, field_validator
 from pydantic.dataclasses import dataclass
 
-# from ovalbee.domain.types.annotation import AnnotationInfo
-from ovalbee.domain.types.base import BaseInfo
-from ovalbee.domain.types.file import FileInfo
+from ovalbee.dto.base import BaseInfo
+from ovalbee.dto.file import FileInfo
 
 
 class AssetType(str, enum.Enum):

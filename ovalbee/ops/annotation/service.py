@@ -7,13 +7,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Union, cast
 import numpy as np
 from PIL import Image
 
-from ovalbee.domain.types.annotation import (
-    Annotation,
-    AnnotationFormat,
-    AnnotationResource,
-)
-from ovalbee.domain.types.asset import AssetInfo
-from ovalbee.domain.types.file import FileInfo
+from ovalbee.dto.annotation import Annotation, AnnotationFormat, AnnotationResource
+from ovalbee.dto.asset import AssetInfo
+from ovalbee.dto.file import FileInfo
 from ovalbee.io.url import parse_s3_url
 from ovalbee.ops.convert.convert import converters, find_convert_chain
 from ovalbee.ops.render.visualize import (
@@ -73,9 +69,7 @@ class AnnotationService:
             source_resources = resources_by_format.get(from_format, [])
             if not source_resources:
                 continue
-            files = [
-                self.download_resource(res, save_dir=target_dir) for res in source_resources
-            ]
+            files = [self.download_resource(res, save_dir=target_dir) for res in source_resources]
             return converter(files, target_dir)
 
         for from_format, source_resources in resources_by_format.items():
@@ -84,9 +78,7 @@ class AnnotationService:
             except NotImplementedError:
                 continue
 
-            files = [
-                self.download_resource(res, save_dir=target_dir) for res in source_resources
-            ]
+            files = [self.download_resource(res, save_dir=target_dir) for res in source_resources]
             for converter in chain:
                 files = converter(files, target_dir)
             return files

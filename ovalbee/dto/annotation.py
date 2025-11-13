@@ -3,9 +3,9 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import Field, field_serializer, field_validator, model_validator
 
-from ovalbee.domain.types.asset import AssetType
-from ovalbee.domain.types.base import BaseInfo
-from ovalbee.domain.types.file import FileInfo
+from ovalbee.dto.asset import AssetType
+from ovalbee.dto.base import BaseInfo
+from ovalbee.dto.file import FileInfo
 
 
 class AnnotationFormat(str, enum.Enum):

@@ -11,20 +11,19 @@ from typing import Optional
 
 # from ovalbee.api import api  # Existing stub preserved for backwards compatibility.
 from ovalbee.api.api import Api
-from ovalbee.domain.types.annotation import (
+from ovalbee.dto.annotation import (
     Annotation,
     AnnotationFormat,
     AnnotationResource,
     AnnotationTask,
 )
-from ovalbee.domain.types.asset import AssetInfo, AssetType
-from ovalbee.domain.types.collection import CollectionInfo
-from ovalbee.domain.types.file import FileInfo, FileType
-from ovalbee.domain.types.space import SpaceInfo
+from ovalbee.dto.asset import AssetInfo, AssetType
+from ovalbee.dto.collection import CollectionInfo
+from ovalbee.dto.file import FileInfo, FileType
+from ovalbee.dto.space import SpaceInfo
 
 # from ovalbee.client import ClientConfig, Ovalbee, login
 from ovalbee.io.url import parse_s3_url
-
 
 # __all__ = [
 #     "Api",

@@ -2,8 +2,8 @@ from typing import List, Optional
 
 from pydantic import Field
 
-from ovalbee.domain.types.asset import AssetInfo
-from ovalbee.domain.types.base import BaseInfo
+from ovalbee.dto.asset import AssetInfo
+from ovalbee.dto.base import BaseInfo
 
 
 class CollectionInfo(BaseInfo):

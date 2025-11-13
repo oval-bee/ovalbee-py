@@ -3,14 +3,10 @@ import pytest
 from PIL import Image
 
 from ovalbee.api.api import Api
-from ovalbee.domain.types.annotation import (
-    Annotation,
-    AnnotationFormat,
-    AnnotationResource,
-)
-from ovalbee.domain.types.asset import AssetInfo, AssetType
-from ovalbee.domain.types.collection import CollectionInfo
-from ovalbee.domain.types.file import FileInfo, FileType
+from ovalbee.dto.annotation import Annotation, AnnotationFormat, AnnotationResource
+from ovalbee.dto.asset import AssetInfo, AssetType
+from ovalbee.dto.collection import CollectionInfo
+from ovalbee.dto.file import FileInfo, FileType
 
 
 class TestRenderAnnotations:
