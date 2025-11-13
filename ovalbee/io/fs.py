@@ -1,3 +1,5 @@
+import errno
+import os
 from pathlib import Path
 from typing import Iterator, List, Union
 
@@ -16,3 +18,25 @@ def iter_files(dir_path: Union[str, Path], recursive: bool = False) -> Iterator[
 
 def list_files(dir_path: Union[str, Path], recursive: bool = False) -> List[str]:
     return list(iter_files(dir_path, recursive))
+
+
+def silent_remove(file_path: str) -> None:
+    """
+    Remove file which may not exist.
+
+    :param file_path: File path.
+    :type file_path: str
+    :returns: None
+    :rtype: :class:`NoneType`
+    :Usage example:
+
+     .. code-block:: python
+
+        from supervisely.io.fs import silent_remove
+        silent_remove('/home/admin/work/projects/examples/1.jpeg')
+    """
+    try:
+        os.remove(file_path)
+    except OSError as e:
+        if e.errno != errno.ENOENT:  # errno.ENOENT = no such file or directory
+            raise
