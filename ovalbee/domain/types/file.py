@@ -1,5 +1,6 @@
 import asyncio
 import enum
+from pathlib import Path
 import tempfile
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -42,7 +43,7 @@ class FileInfo(BaseInfo):
     def download(self, api: "Api", save_dir: str = None, prefix: str = None) -> str:
         """Download resource file and return path to it"""
         bucket, key = parse_s3_url(self.url)
-        prefix = prefix or f"File_{self.key}_"
+        prefix = prefix or f"File_{Path(self.key).name}_"
         temp_file = tempfile.NamedTemporaryFile(prefix=prefix, dir=save_dir, delete=False)
         file_path = temp_file.name
         api.storage.download(key=key, bucket=bucket, file_path=file_path)
@@ -50,7 +51,7 @@ class FileInfo(BaseInfo):
 
     async def download_async(self, api: "Api", save_dir: str = None, prefix: str = None):
         bucket, key = parse_s3_url(self.url)
-        prefix = prefix or f"File_{self.key}_"
+        prefix = prefix or f"File_{Path(self.key).name}_"
         temp_file = tempfile.NamedTemporaryFile(prefix=prefix, dir=save_dir, delete=False)
         file_path = temp_file.name
         await api.storage.download_async(key=key, bucket=bucket, file_path=file_path)

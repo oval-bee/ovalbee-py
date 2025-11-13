@@ -170,7 +170,7 @@ class Annotation(BaseInfo):
         if isinstance(img, (str, Path)):
             if not Path(img).is_file():
                 bucket, key = parse_s3_url(img)
-                prefix = f"AnnotationRender_{key}_"
+                prefix = f"AnnotationRender_{Path(self.key).name}_"
                 img = tempfile.NamedTemporaryFile(prefix=prefix, delete=False).name
                 api.storage.download(key=key, bucket=bucket, file_path=img)
                 img = np.array(Image.open(img).convert("RGB"))
