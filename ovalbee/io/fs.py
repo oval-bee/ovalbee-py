@@ -40,3 +40,69 @@ def silent_remove(file_path: str) -> None:
     except OSError as e:
         if e.errno != errno.ENOENT:  # errno.ENOENT = no such file or directory
             raise
+
+
+def get_file_name(path: str) -> str:
+    """
+    Extracts file name from a given path.
+
+    :param path: Path to file.
+    :type path: str
+    :returns: File name without extension
+    :rtype: :class:`str`
+    :Usage example:
+
+     .. code-block::
+
+        import supervisely as sly
+
+        file_name = sly.fs.get_file_name("/home/admin/work/projects/lemons_annotated/ds1/img/IMG_0748.jpeg")
+
+        print(file_name)
+        # Output: IMG_0748
+    """
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def get_file_ext(path: str) -> str:
+    """
+    Extracts file extension from a given path.
+
+    :param path: Path to file.
+    :type path: str
+    :returns: File extension without name
+    :rtype: :class:`str`
+    :Usage example:
+
+     .. code-block::
+
+        import supervisely as sly
+
+        file_ext = sly.fs.get_file_ext("/home/admin/work/projects/lemons_annotated/ds1/img/IMG_0748.jpeg")
+
+        print(file_ext)
+        # Output: .jpeg
+    """
+    return os.path.splitext(os.path.basename(path))[1]
+
+
+def get_file_name_with_ext(path: str) -> str:
+    """
+    Extracts file name with ext from a given path.
+
+    :param path: Path to file.
+    :type path: str
+    :returns: File name with extension
+    :rtype: :class:`str`
+    :Usage example:
+
+     .. code-block::
+
+        import supervisely as sly
+
+        file_name_ext = sly.fs.get_file_name_with_ext("/home/admin/work/projects/lemons_annotated/ds1/img/IMG_0748.jpeg")
+
+        print(file_name_ext)
+        # Output: IMG_0748.jpeg
+    """
+    return os.path.basename(path)

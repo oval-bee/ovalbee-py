@@ -9,6 +9,7 @@ from pydantic import Field, field_serializer, model_validator
 
 from ovalbee.dto.base import BaseInfo
 from ovalbee.dto.s3 import S3Object
+from ovalbee.io.fs import get_file_ext
 from ovalbee.io.url import parse_s3_url
 
 if TYPE_CHECKING:
@@ -42,11 +43,18 @@ class FileInfo(BaseInfo):
             values["key"] = parsed_key
         return values
 
-    def download(self, api: "Api", save_dir: str = None, prefix: str = None) -> str:
+    def download(
+        self, api: "Api", save_dir: str = None, prefix: str = None, suffix: str = None
+    ) -> str:
         """Download resource file and return path to it"""
         bucket, key = parse_s3_url(self.url)
         prefix = prefix or f"File_{Path(self.key).name}_"
-        temp_file = tempfile.NamedTemporaryFile(prefix=prefix, dir=save_dir, delete=False)
+        if "/" in prefix:
+            prefix = prefix.replace("/", "_")
+        suffix = suffix or get_file_ext(self.url)
+        temp_file = tempfile.NamedTemporaryFile(
+            prefix=prefix, suffix=suffix, dir=save_dir, delete=False
+        )
         file_path = temp_file.name
         api.storage.download(key=key, bucket=bucket, file_path=file_path)
         return file_path
