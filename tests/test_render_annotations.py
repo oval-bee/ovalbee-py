@@ -35,6 +35,8 @@ class TestRenderAnnotations:
             "image_path": "test_data/000000795h.jpg",
             "annotation_path": "test_data/000000795h.jpg.json",
             "result_image_path": "test_data/000000795h_rendered.jpg",
+            "yolo_ann": "test_data/100016h.txt",
+            "yolo_image": "test_data/100016h.jpg",
         }
 
     def test_01_create_asset(self, api: Api, test_file_paths, test_constants):
@@ -100,6 +102,36 @@ class TestRenderAnnotations:
 
         rendered_img = api.annotation_ops.render(annotation, image=test_file_paths["image_path"])
         Image.fromarray(rendered_img).save(test_file_paths["result_image_path"])
+
+        assert isinstance(rendered_img, np.ndarray)
+        assert rendered_img.ndim == 3  # HWC
+        assert rendered_img.shape[2] == 3  # RGB channels
+
+    def test_04_render_yolo_annotation(self, api: Api, test_file_paths):
+        """Test rendering a YOLO annotation."""
+        key = test_file_paths["yolo_ann"].split("/")[-1]
+
+        api.storage.upload(
+            bucket="workspace",
+            key=key,
+            file_path=test_file_paths["yolo_ann"],
+        )
+        annotation_info = Annotation(
+            space_id=1,
+            resources=[
+                AnnotationResource(
+                    key=key,
+                    url=f"s3://workspace/{key}",
+                    type=FileType.INTERNAL,
+                    format=AnnotationFormat.YOLO,
+                )
+            ],
+        )
+        annotation = api.annotation.create(annotation_info)
+
+        rendered_img = api.annotation_ops.render(
+            annotation, image=test_file_paths["yolo_image"]
+        )
 
         assert isinstance(rendered_img, np.ndarray)
         assert rendered_img.ndim == 3  # HWC

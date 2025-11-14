@@ -35,11 +35,12 @@ def get_sly_meta_from_annotation(ann_json: dict):
     return meta
 
 
-def create_tags_from_annotation(tags: List[dict], meta):
+def create_tags_from_annotation(tags: List[dict], meta = None):
     import supervisely as sly
     from supervisely.annotation.tag import TagJsonFields
 
     meta: sly.ProjectMeta
+    meta = meta or sly.ProjectMeta()
     for tag in tags:
         if not TagJsonFields.TAG_NAME in tag:
             continue
@@ -59,7 +60,7 @@ def create_tags_from_annotation(tags: List[dict], meta):
     return meta
 
 
-def create_classes_from_annotation(object: dict, meta):
+def create_classes_from_annotation(object: dict, meta = None):
     import supervisely as sly
     from supervisely.annotation.json_geometries_map import GET_GEOMETRY_FROM_STR
     from supervisely.annotation.label import LabelJsonFields
@@ -67,6 +68,7 @@ def create_classes_from_annotation(object: dict, meta):
     from supervisely.geometry.graph import NODES, KeypointsTemplate
 
     meta: sly.ProjectMeta
+    meta = meta or sly.ProjectMeta()
     SLY_OBJECT_KEYS = [
         LabelJsonFields.OBJ_CLASS_NAME,
         LabelJsonFields.TAGS,

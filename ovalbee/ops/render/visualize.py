@@ -44,6 +44,17 @@ def render_resource(
         visualizer = visualizers[ann_resource.format]
         ann_file = ann_resource.download(api)
         return visualizer(img, ann_file, ann_resource.metadata)
+    elif can_convert(ann_resource.format, AnnotationFormat.SLY):
+        ann_file = ann_resource.download(api)
+        converted_file = convert(
+            [ann_file],
+            from_format=ann_resource.format,
+            to_format=AnnotationFormat.SLY,
+            img_height=img.shape[0],
+            img_width=img.shape[1],
+        )
+        sly_file = converted_file
+        return visualize_sly(img, sly_file, ann_resource.metadata)
     raise NotImplementedError(f"No visualizer for format: {ann_resource.format.value}")
 
 
@@ -104,5 +115,4 @@ def visualize(
                 convert_for_visualization=False,
             )
 
-    raise NotImplementedError("No visualizer available for format.")
     raise NotImplementedError("No visualizer available for format.")

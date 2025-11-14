@@ -1,7 +1,12 @@
 from collections import deque
+import tempfile
+from pathlib import Path
 from typing import List
 
 from ovalbee.dto.annotation import AnnotationFormat
+from ovalbee.io.fs import silent_remove
+from ovalbee.ops.convert.yolo import SlyToYoloConverter, YoloToSlyConverter
+from ovalbee.ops.convert.base import AnnotationConverter
 
 
 def convert_sly_to_yolo(files: List[str], save_dir: str) -> List[str]:
@@ -13,12 +18,12 @@ def convert_yolo_to_sly(files: List[str], save_dir: str) -> List[str]:
 
 
 converters = {
-    (AnnotationFormat.SLY, AnnotationFormat.YOLO): convert_sly_to_yolo,
-    (AnnotationFormat.YOLO, AnnotationFormat.SLY): convert_yolo_to_sly,
+    (AnnotationFormat.SLY, AnnotationFormat.YOLO): SlyToYoloConverter,
+    (AnnotationFormat.YOLO, AnnotationFormat.SLY): YoloToSlyConverter,
 }
 
 
-def find_convert_chain(from_format, to_format):
+def find_convert_chain(from_format, to_format) -> List[AnnotationConverter]:
     if from_format == to_format:
         return []
 
@@ -28,9 +33,9 @@ def find_convert_chain(from_format, to_format):
     while queue:
         current_format, path = queue.popleft()
 
-        for (source, target), converter_func in converters.items():
+        for (source, target), converter in converters.items():
             if source == current_format and target not in visited:
-                new_path = path + [converter_func]
+                new_path = path + [converter]
 
                 if target == to_format:
                     return new_path
@@ -53,11 +58,21 @@ def can_convert(from_format: AnnotationFormat, to_format: AnnotationFormat):
 
 def convert(
     files: List[StopIteration],
-    from_format: AnnotationFormat,
-    to_format: AnnotationFormat,
-    save_dir: str,
-) -> List[str]:
+    from_format: AnnotationFormat | str,
+    to_format: AnnotationFormat | str,
+    save_path: str | Path = None,
+    img_height: int = None,
+    img_width: int = None,
+) -> str:
+    if save_path is None:
+        save_path = Path(tempfile.NamedTemporaryFile(
+            prefix=f"converted_{from_format}_to_{to_format}_",
+            suffix="",
+            delete=False,
+        ).name)
     converters_chain = find_convert_chain(from_format, to_format)
-    for converter in converters_chain:
-        files = converter(files, save_dir)
-    return files
+    for converter_cls in converters_chain:
+        converter = converter_cls()
+        tmp_file = converter.convert_files(files, save_path, img_height=img_height, img_width=img_width)
+        files = [tmp_file]
+    return files[0]

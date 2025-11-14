@@ -10,13 +10,16 @@ from PIL import Image
 from ovalbee.dto.annotation import Annotation, AnnotationFormat, AnnotationResource
 from ovalbee.dto.asset import AssetInfo
 from ovalbee.dto.file import FileInfo
+from ovalbee.io.fs import get_file_ext, silent_remove
 from ovalbee.io.url import parse_s3_url
+from ovalbee.ops.convert.base import AnnotationConverter
 from ovalbee.ops.convert.convert import converters, find_convert_chain
 from ovalbee.ops.render.visualize import (
     create_blank_mask,
     get_image_size,
     render_annotation,
     visualize,
+    visualizers,
 )
 
 if TYPE_CHECKING:
@@ -39,7 +42,8 @@ class AnnotationService:
     ) -> str:
         """Download a single annotation resource and return the local path."""
         file_prefix = prefix or self._default_resource_prefix(resource)
-        return resource.download(self._api, save_dir, file_prefix)
+        suffix = get_file_ext(resource.url)
+        return resource.download(self._api, save_dir, file_prefix, suffix)
 
     def download_resources(
         self,
@@ -54,23 +58,37 @@ class AnnotationService:
     def convert(
         self,
         annotation: Annotation,
-        to_format: AnnotationFormat,
-        *,
-        save_dir: Optional[str] = None,
-    ) -> List[str]:
-        target_dir = save_dir or self._make_workspace(
-            f"Annotation_{annotation.asset_id}_format_{to_format.value}_"
-        )
+        to_format: AnnotationFormat | str,
+        res_path: Optional[str] = None,
+        img_height: Optional[int] = None,
+        img_width: Optional[int] = None,
+    ) -> str:
+        """Convert annotation resources to the specified format."""
+        if isinstance(to_format, str):
+            to_format = AnnotationFormat(to_format)
+        target_dir = str(Path(res_path).parent)
         resources_by_format = self._group_by_format(annotation.resources)
 
-        for (from_format, target_format), converter in converters.items():
+        for (from_format, target_format), converter_cls in converters.items():
             if target_format != to_format:
                 continue
             source_resources = resources_by_format.get(from_format, [])
             if not source_resources:
                 continue
             files = [self.download_resource(res, save_dir=target_dir) for res in source_resources]
-            return converter(files, target_dir)
+            converter: AnnotationConverter = converter_cls()
+            res_path = res_path or self._make_temp_file(
+                prefix=f"Annotation_{annotation.asset_id}_format_{to_format.value}_",
+                suffix=converter.output_suffix,
+            )
+            path = converter.convert_files(
+                files, res_path, img_height=img_height, img_width=img_width
+            )
+
+            for file in files:
+                silent_remove(file)
+
+            return path
 
         for from_format, source_resources in resources_by_format.items():
             try:
@@ -79,9 +97,22 @@ class AnnotationService:
                 continue
 
             files = [self.download_resource(res, save_dir=target_dir) for res in source_resources]
-            for converter in chain:
-                files = converter(files, target_dir)
-            return files
+
+            res = files
+            for converter_cls in chain:
+                if not isinstance(res, list):
+                    res = [res]
+                converter: AnnotationConverter = converter_cls()
+                res_path = self._make_temp_file(
+                    prefix=f"Annotation_{annotation.asset_id}_format_{to_format.value}_",
+                    suffix=converter.output_suffix,
+                )
+                res = converter.convert_files(
+                    res, res_path, img_height=img_height, img_width=img_width
+                )
+            for file in files:
+                silent_remove(file)
+            return res
 
         raise NotImplementedError(f"No converter found for format: {to_format}")
 
@@ -101,6 +132,13 @@ class AnnotationService:
             img_height=img_height,
             img_width=img_width,
         )
+        # base_image = base_image.copy()
+        # files = self.download_resources(annotation)
+        # for files, resource in zip(files, annotation.resources):
+        #     if resource.format in visualizers:
+        #         visualize_func = visualizers[resource.format]
+        #         base_image = visualize_func(base_image, files, resource.metadata)
+        # return base_image
         return render_annotation(annotation, self._api, base_image)
 
     # --------------------------------------------------------------------- Visualize
@@ -211,6 +249,10 @@ class AnnotationService:
     @staticmethod
     def _make_workspace(prefix: str) -> str:
         return tempfile.mkdtemp(prefix=prefix)
+
+    @staticmethod
+    def _make_temp_file(prefix: str = None, suffix: str = None) -> str:
+        return tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, delete=False).name
 
     @staticmethod
     def _default_resource_prefix(resource: AnnotationResource) -> str:
