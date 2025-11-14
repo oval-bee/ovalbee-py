@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import enum
 import tempfile
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from pydantic import Field, field_serializer, model_validator
 
 from ovalbee.dto.base import BaseInfo
+from ovalbee.dto.s3 import S3Object
 from ovalbee.io.url import parse_s3_url
 
 if TYPE_CHECKING:
@@ -56,3 +58,23 @@ class FileInfo(BaseInfo):
         file_path = temp_file.name
         await api.storage.download_async(key=key, bucket=bucket, file_path=file_path)
         return file_path
+
+    @classmethod
+    def from_s3_object(cls, s3_object: S3Object) -> "FileInfo":
+        """Create FileInfo from S3Object"""
+        bucket, key = parse_s3_url(s3_object.key)
+        return cls(
+            key=key,
+            url=f"s3://{bucket}/{key}",
+            metadata={
+                "size": s3_object.size,
+                "last_modified": (
+                    s3_object.last_modified.isoformat()
+                    if isinstance(s3_object.last_modified, datetime.datetime)
+                    else s3_object.last_modified
+                ),
+                "etag": s3_object.etag,
+                "storage_class": s3_object.storage_class,
+            },
+            type=FileType.INTERNAL,
+        )
