@@ -19,6 +19,7 @@ except ImportError:
 
 import logging
 
+from ovalbee.dto.file import FileInfo
 from ovalbee.dto.s3 import S3Object
 from ovalbee.io.credentials import MinioCredentials, _is_ssl_url, _normalize_url
 from ovalbee.io.decorators import run_sync, sync_compatible, sync_compatible_generator
@@ -173,6 +174,26 @@ class ObjectOperations:
             return await body.read()
         finally:
             body.close()
+
+    @sync_compatible
+    async def get_info(self, bucket: str, key: str) -> FileInfo:
+        """Get object metadata as FileInfo."""
+        await self._api._ensure_connected()
+        if self._api._on_premise and bucket != "workspace":
+            logging.warning("On-premise mode: overriding bucket name to 'workspace'")
+            bucket = "workspace"
+        await self._api._ensure_bucket_exists(bucket)
+
+        resp = await self._api._client.head_object(Bucket=bucket, Key=key)
+        data = {
+            "Key": f"s3://{bucket}/{key}",
+            "Size": resp["ContentLength"],
+            "LastModified": resp["LastModified"],
+            "ETag": resp["ETag"],
+            "StorageClass": resp.get("StorageClass", "STANDARD"),
+        }
+        s3_object = S3Object(**data)
+        return FileInfo.from_s3_object(s3_object)
 
     @sync_compatible
     async def get_size(self, bucket: str, key: str) -> int:
@@ -425,7 +446,7 @@ class StorageApi(_StorageApi):
         page_size: Optional[int] = None,
         max_keys: Optional[int] = None,
         include_dirs: bool = False,
-    ) -> AsyncGenerator[S3Object, None]:
+    ) -> AsyncGenerator[FileInfo, None]:
         """
         Async generator yielding object summaries under a prefix.
         - delimiter="/" produces 'CommonPrefixes' (folders).
@@ -447,19 +468,20 @@ class StorageApi(_StorageApi):
                 for d in page["CommonPrefixes"]:
                     yield {"Prefix": d.get("Prefix")}
             for obj in page.get("Contents", []):
-                yield S3Object(**obj)
+                yield FileInfo.from_s3_object(S3Object(**obj))
 
     @sync_compatible
-    async def list_objects(
+    async def list_objects_page(
         self,
         prefix: str = "",
         bucket: str = "workspace",
-        delimiter: Optional[str] = None,
-        max_keys: Optional[int] = None,
         continuation_token: Optional[str] = None,
-        start_after: Optional[str] = None,
-        fetch_owner: bool = False,
-    ) -> List[S3Object]:
+        # delimiter: Optional[str] = None,
+        # max_keys: Optional[int] = None,
+        # start_after: Optional[str] = None,
+        # fetch_owner: bool = False,
+        return_continuation_token: bool = False,
+    ) -> List[FileInfo]:
         """
         Thin wrapper around S3 ListObjectsV2 API.
         Returns the raw response dict, including Contents, CommonPrefixes,
@@ -468,22 +490,52 @@ class StorageApi(_StorageApi):
         await self._ensure_connected()
         await self._ensure_bucket_exists(bucket)
         params: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
-        if delimiter is not None:
-            params["Delimiter"] = delimiter
-        if max_keys is not None:
-            params["MaxKeys"] = max_keys
         if continuation_token:
             params["ContinuationToken"] = continuation_token
-        if start_after:
-            params["StartAfter"] = start_after
-        if fetch_owner:
-            params["FetchOwner"] = True
+        # if delimiter is not None:
+        #     params["Delimiter"] = delimiter
+        # if max_keys is not None:
+        #     params["MaxKeys"] = max_keys
+        # if start_after:
+        #     params["StartAfter"] = start_after
+        # if fetch_owner:
+        #     params["FetchOwner"] = True
 
+        res = []
         resp = await self._client.list_objects_v2(**params)
+        continuation_token = resp.get("NextContinuationToken")
         contents = resp.get("Contents")
-        if contents is None:
-            return []
-        return [S3Object(**obj) for obj in contents]
+        if contents:
+            res = [FileInfo.from_s3_object(S3Object(**obj)) for obj in contents]
+        if return_continuation_token:
+            return res, continuation_token
+        return res
+
+    def list(
+        self,
+        prefix: str = "",
+        bucket: str = "workspace",
+    ) -> List[FileInfo]:
+        """
+        List all objects under a prefix.
+        Returns list of FileInfo objects.
+        """
+        res = []
+        first_res, cont_token = self.list_objects_page(
+            prefix=prefix,
+            bucket=bucket,
+            return_continuation_token=True,
+        )
+        res.extend(first_res)
+        while cont_token:
+            next_res, cont_token = self.list_objects_page(
+                prefix=prefix,
+                bucket=bucket,
+                continuation_token=cont_token,
+                return_continuation_token=True,
+            )
+            res.extend(next_res)
+        return res
 
     # --------------- File helpers (local disk <-> S3) ---------------
     def upload(

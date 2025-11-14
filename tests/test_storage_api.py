@@ -15,7 +15,7 @@ api = Api.from_env()
 
 # local/tests
 BUCKET = "workspace"
-PREFIX = "tests"
+PREFIX = ""
 LOCAL_DIR = "./downloaded_dir"
 
 
@@ -38,6 +38,15 @@ def test():
     print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
 
 
+def list_files():
+    t = time.perf_counter()
+    files = api.storage.list(PREFIX, BUCKET)
+    for f in files:
+        pass
+    print(f"🟢 files num: {len(files)}")
+    print(f"Test duration: {time.perf_counter() - t:.2f} seconds")
+
+
 async def async_test():
     t = time.perf_counter()
     for i in range(3):
@@ -48,5 +57,6 @@ async def async_test():
 
 
 if __name__ == "__main__":
-    test()
+    # test()
     # asyncio.run(async_test())
+    list_files()
